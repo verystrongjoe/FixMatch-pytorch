@@ -3,3 +3,5 @@ numpy
 tqdm
 Pillow
 apex
+albumentations
+opencv-python
