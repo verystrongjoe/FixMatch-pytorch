@@ -160,7 +160,7 @@ class WM811K(Dataset):
         if self.decouple_input:
             x = self.decouple_mask(x)
 
-        return dict(x=x, y=y, idx=idx)
+        return x, y
 
     def __len__(self):
         return len(self.samples)
@@ -240,7 +240,7 @@ def get_wm811k(args, root):
         'decouple_input': args.decouple_input,
     }
     train_unlabeld_data_kwargs = {
-        'transform': TransformFixMatchWafer,
+        'transform': TransformFixMatchWafer(args),
         'decouple_input': args.decouple_input,
     }
     test_data_kwargs = {

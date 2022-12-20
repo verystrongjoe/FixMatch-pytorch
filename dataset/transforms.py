@@ -1,11 +1,14 @@
 import torch
 import numpy as np
+from numpy import random
 from torchvision import transforms
 from .randaugment import RandAugmentMC
 from albumentations.core.transforms_interface import BasicTransform
 from albumentations.core.transforms_interface import ImageOnlyTransform
+from torch.distributions import Bernoulli
 import albumentations as A
 import cv2
+from PIL import Image
 
 class ToWBM(BasicTransform):
     def __init__(self, always_apply: bool = True, p: float = 1.0):
@@ -114,13 +117,15 @@ class WM811KTransform(object):
         return repr_str
 
     @staticmethod
-    def weak_transform(size: int, **kwargs):
+    def weak_transform(size: tuple, **kwargs):
         transform = [
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32 * 0.125),
-                                  padding_mode='reflect'),
+            # transform.RandomHorizontalFlip(),
+            # transforms.RandomCrop(size=32,
+            #                       padding=int(32 * 0.125),
+            #                       padding_mode='reflect'),
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.HorizontalFlip(),
+            A.RandomCrop(height=32, width=32, p=1.0),
             ToWBM(),
         ]
         return transform
@@ -372,37 +377,41 @@ class WM811KTransformMultiple(object):
     def __init__(self,
                  args,
                  ):
-        transforms = []
-        size = (args.input_size_xy, args.input_size_xy)
+        _transforms = []
+        size = (96, 96)
         resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST)
-        transforms.append(resize_transform)
+        _transforms.append(resize_transform)
+        modes = []
+        magnitudes =[]
 
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
             magnitude = random.rand()
-            args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
+            modes.append(mode)
+            magnitudes.append(magnitude)
+            # args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
             if mode == 'noise':
                 continue
             if mode == 'crop':
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 ratio = (0.9, 1.1)  # WaPIRL
-                transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
+                _transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
             elif mode == 'cutout':
                 num_holes: int = 4  # WaPIRL
                 range_magnitude = (0.0, 0.5)
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 cut_h = int(size[0] * final_magnitude)
                 cut_w = int(size[1] * final_magnitude)
-                transforms.append(A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5))
+                _transforms.append(A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5))
             elif mode == 'rotate':
                 range_magnitude = (0, 360)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
-                transforms.append(A.Rotate(limit=final_magnitude, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
+                _transforms.append(A.Rotate(limit=final_magnitude, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
             elif mode == 'shift':
                 range_magnitude = (0, 0.5)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
-                transforms.append(A.ShiftScaleRotate(
+                _transforms.append(A.ShiftScaleRotate(
                 shift_limit=final_magnitude,
                 scale_limit=0,
                 rotate_limit=0,
@@ -413,16 +422,16 @@ class WM811KTransformMultiple(object):
             ),)
             elif mode == 'test':
                 pass
-        transforms.append(ToWBM())
+        _transforms.append(ToWBM())
 
-        for i in range(0, len(hyperparams)-1, 2):
-            mode, magnitude = hyperparams[i], hyperparams[i+1]
+        for i in range(len(magnitudes)):
+            mode, magnitude = modes[i], magnitudes[i]
             if mode == 'noise':
                 range_magnitude = (0., 0.20)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
-                transforms.append(ToWBM())
-                transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
-        self.transform = A.Compose(transforms)
+                _transforms.append(ToWBM())
+                _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
+        self.transform = A.Compose(_transforms)
 
     def __call__(self, img):
         return self.transform(image=img)['image']
@@ -450,25 +459,57 @@ class TransformFixMatch(object):
         strong = self.strong(x)
         return self.normalize(weak), self.normalize(strong)
 
+
 class TransformFixMatchWafer(object):
     def __init__(self, args):
         self.weak = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32 * 0.125),
-                                  padding_mode='reflect')])
+            # transforms.RandomHorizontalFlip(),
+            # transforms.RandomCrop(size=32,
+            #                       padding=int(32 * 0.125),
+            #                       padding_mode='reflect')
+            A.HorizontalFlip(),
+            A.RandomCrop(height=32, width=32, p=1.0),
+            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
+            ToWBM(),
+        ])
+
         self.strong = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32 * 0.125),
-                                  padding_mode='reflect'),
+            # transforms.RandomHorizontalFlip(),
+            # transforms.RandomCrop(size=32,
+            #                       padding=int(32 * 0.125),
+            #                       padding_mode='reflect'),
+            A.HorizontalFlip(),
+            A.RandomCrop(height=32, width=32, p=1.0),
             WM811KTransformMultiple(args)])
 
-        self.normalize = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mean, std=std)])
+        # self.normalize = transforms.Compose([
+        #     transforms.ToTensor(),
+        #     transforms.Normalize(mean=mean, std=std)])
+
+    @staticmethod
+    def load_image_pil(filepath: str):
+        """Load image with PIL. Use with `torchvision`."""
+        return Image.open(filepath)
+
+    @staticmethod
+    def load_image_cv2(filepath: str):
+        """Load image with cv2. Use with `albumentations`."""
+        out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
+        return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
+
+    @staticmethod
+    def decouple_mask(x: torch.Tensor):
+        """
+        Decouple input with existence mask.
+        Defect bins = 2, Normal bins = 1, Null bins = 0
+        """
+        m = x.gt(0).float()
+        x = torch.clamp(x - 1, min=0., max=1.)
+        return torch.cat([x, m], dim=0)
+
 
     def __call__(self, x):
         weak = self.weak(x)
         strong = self.strong(x)
-        return self.normalize(weak), self.normalize(strong)
+        # return self.normalize(weak), self.normalize(strong)
+        return weak, strong
