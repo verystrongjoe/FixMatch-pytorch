@@ -320,7 +320,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             scheduler.step()
             if args.use_ema:
                 ema_model.update(model)
-            model.zero_grad()
 
             batch_time.update(time.time() - end)
             end = time.time()
@@ -391,8 +390,7 @@ def test(args, test_loader, model, epoch):
     end = time.time()
 
     if not args.no_progress:
-        test_loader = tqdm(test_loader,
-                           disable=args.local_rank not in [-1, 0])
+        test_loader = tqdm(test_loader)
 
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(test_loader):
@@ -403,7 +401,6 @@ def test(args, test_loader, model, epoch):
             targets = targets.to(args.device)
             outputs = model(inputs)
             loss = F.cross_entropy(outputs, targets)
-
             prec1, prec5 = accuracy(outputs, targets, topk=(1, 5))
             losses.update(loss.item(), inputs.shape[0])
             top1.update(prec1.item(), inputs.shape[0])

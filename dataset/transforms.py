@@ -126,6 +126,7 @@ class WM811KTransform(object):
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
             A.RandomCrop(height=32, width=32, p=1.0),
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             ToWBM(),
         ]
         return transform
@@ -422,6 +423,8 @@ class WM811KTransformMultiple(object):
             ),)
             elif mode == 'test':
                 pass
+        # todo : check here
+        _transforms.append(A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST))
         _transforms.append(ToWBM())
 
         for i in range(len(magnitudes)):
@@ -431,6 +434,7 @@ class WM811KTransformMultiple(object):
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
                 _transforms.append(ToWBM())
                 _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
+
         self.transform = A.Compose(_transforms)
 
     def __call__(self, img):
@@ -441,13 +445,13 @@ class TransformFixMatch(object):
     def __init__(self, mean, std):
         self.weak = transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32*0.125),
+            transforms.RandomCrop(size=20,
+                                  padding=int(20*0.125),
                                   padding_mode='reflect')])
         self.strong = transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32*0.125),
+            transforms.RandomCrop(size=20,
+                                  padding=int(20*0.125),
                                   padding_mode='reflect'),
             RandAugmentMC(n=2, m=10)])
         self.normalize = transforms.Compose([
@@ -462,54 +466,35 @@ class TransformFixMatch(object):
 
 class TransformFixMatchWafer(object):
     def __init__(self, args):
-        self.weak = transforms.Compose([
+        self.weak = A.Compose([
             # transforms.RandomHorizontalFlip(),
             # transforms.RandomCrop(size=32,
             #                       padding=int(32 * 0.125),
             #                       padding_mode='reflect')
+            # todo : check here
+            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
             A.RandomCrop(height=32, width=32, p=1.0),
+            # todo : check here
             A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
             ToWBM(),
         ])
 
-        self.strong = transforms.Compose([
+        self.basic = A.Compose([
             # transforms.RandomHorizontalFlip(),
             # transforms.RandomCrop(size=32,
             #                       padding=int(32 * 0.125),
             #                       padding_mode='reflect'),
+            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
             A.RandomCrop(height=32, width=32, p=1.0),
-            WM811KTransformMultiple(args)])
-
-        # self.normalize = transforms.Compose([
-        #     transforms.ToTensor(),
-        #     transforms.Normalize(mean=mean, std=std)])
-
-    @staticmethod
-    def load_image_pil(filepath: str):
-        """Load image with PIL. Use with `torchvision`."""
-        return Image.open(filepath)
-
-    @staticmethod
-    def load_image_cv2(filepath: str):
-        """Load image with cv2. Use with `albumentations`."""
-        out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
-        return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
-
-    @staticmethod
-    def decouple_mask(x: torch.Tensor):
-        """
-        Decouple input with existence mask.
-        Defect bins = 2, Normal bins = 1, Null bins = 0
-        """
-        m = x.gt(0).float()
-        x = torch.clamp(x - 1, min=0., max=1.)
-        return torch.cat([x, m], dim=0)
-
+        ])
+        self.strong_trans = WM811KTransformMultiple(args)
 
     def __call__(self, x):
-        weak = self.weak(x)
-        strong = self.strong(x)
-        # return self.normalize(weak), self.normalize(strong)
+
+        weak = self.weak(image=x)['image']
+
+        strong = self.basic(image=x)
+        strong = self.strong_trans(strong['image'])
         return weak, strong
