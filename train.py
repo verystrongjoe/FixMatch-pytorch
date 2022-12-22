@@ -92,6 +92,7 @@ def main():
         num_workers=args.num_workers)
 
     model = create_model(args)
+    model.to(args.device)
 
     no_decay = ['bias', 'bn']
     # grouped_parameters = [
