@@ -103,7 +103,7 @@ class CifarResNeXt(nn.Module):
         self.stages = [64, 64 * self.widen_factor, 128 *
                        self.widen_factor, 256 * self.widen_factor]
 
-        self.conv_1_3x3 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
+        self.conv_1_3x3 = nn.Conv2d(1, 64, 3, 1, 1, bias=False)
         self.bn_1 = nn.BatchNorm2d(64, momentum=0.001)
         self.act = mish
         self.stage_1 = self.block('stage_1', self.stages[0], self.stages[1], 1)

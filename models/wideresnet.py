@@ -77,7 +77,7 @@ class WideResNet(nn.Module):
         n = (depth - 4) / 6
         block = BasicBlock
         # 1st conv before any network block
-        self.conv1 = nn.Conv2d(3, channels[0], kernel_size=3, stride=1,
+        self.conv1 = nn.Conv2d(1, channels[0], kernel_size=3, stride=1,
                                padding=1, bias=False)
         # 1st block
         self.block1 = NetworkBlock(
@@ -123,3 +123,13 @@ def build_wideresnet(depth, widen_factor, dropout, num_classes):
                       widen_factor=widen_factor,
                       drop_rate=dropout,
                       num_classes=num_classes)
+
+
+if __name__ == '__main__':
+    model = build_wideresnet(depth=28,
+                                    widen_factor=2,
+                                    dropout=0,
+                                    num_classes=9)
+
+    x = torch.randn(1, 1, 96, 96)
+    model(x)
