@@ -1,129 +1,25 @@
-import argparse
 import logging
 import math
 import os
-import random
-import shutil
 import time
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from dataset.dataset import DATASET_GETTERS
 from utils import AverageMeter, accuracy
-from models.advanced import AdvancedCNN
+from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, get_cosine_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 best_acc = 0
 
 
-def save_checkpoint(state, is_best, checkpoint, filename='checkpoint.pth.tar'):
-    filepath = os.path.join(checkpoint, filename)
-    torch.save(state, filepath)
-    if is_best:
-        shutil.copyfile(filepath, os.path.join(checkpoint,
-                                               'model_best.pth.tar'))
-
-
-def set_seed(args):
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if args.n_gpu > 0:
-        torch.cuda.manual_seed_all(args.seed)
-
-
-def get_cosine_schedule_with_warmup(optimizer,
-                                    num_warmup_steps,
-                                    num_training_steps,
-                                    num_cycles=7./16.,
-                                    last_epoch=-1):
-    def _lr_lambda(current_step):
-        if current_step < num_warmup_steps:
-            return float(current_step) / float(max(1, num_warmup_steps))
-        no_progress = float(current_step - num_warmup_steps) / \
-            float(max(1, num_training_steps - num_warmup_steps))
-        return max(0., math.cos(math.pi * num_cycles * no_progress))
-
-    return LambdaLR(optimizer, _lr_lambda, last_epoch)
-
-
-def interleave(x, size):
-    s = list(x.shape)
-    return x.reshape([-1, size] + s[1:]).transpose(0, 1).reshape([-1] + s[1:])
-
-
-def de_interleave(x, size):
-    s = list(x.shape)
-    return x.reshape([size, -1] + s[1:]).transpose(0, 1).reshape([-1] + s[1:])
-
-
 def main():
-    parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
-    parser.add_argument('--num_gpu', default='0', type=int, help='id(s) for CUDA_VISIBLE_DEVICES')
-    parser.add_argument('--num-workers', type=int, default=30, help='number of workers')
-
-    # dataset
-    parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
-    parser.add_argument('--num-labeled', type=int, default=4000, help='number of labeled data')
-    parser.add_argument('--num_channel', type=int, default=1)
-    parser.add_argument('--num_classes', type=int, default=9)
-
-    # model
-    parser.add_argument('--arch', type=str, default='resnet', choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
-    parser.add_argument('--arch-config', default='18', type=str)
-    parser.add_argument('--decouple_input', action='store_true')
-
-    # experiment
-    parser.add_argument('--total-steps', default=2**20, type=int, help='number of total steps to run')
-    parser.add_argument('--eval-step', default=1024, type=int, help='number of eval steps to run')
-    parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
-    parser.add_argument('--batch-size', default=64, type=int, help='train batchsize')
-    parser.add_argument('--lr', '--learning-rate', default=0.03, type=float, help='initial learning rate')
-    parser.add_argument('--warmup', default=0, type=float, help='warmup epochs (unlabeled data based)')
-    parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay')
-    parser.add_argument('--nesterov', action='store_true', default=True, help='use nesterov momentum')
-    parser.add_argument('--use-ema', action='store_true', default=False, help='use EMA model') # todo : change it True
-    parser.add_argument('--ema-decay', default=0.999, type=float, help='EMA decay rate')
-    parser.add_argument('--mu', default=7, type=int, help='coefficient of unlabeled batch size')
-    parser.add_argument('--lambda-u', default=1, type=float, help='coefficient of unlabeled loss')
-    parser.add_argument('--T', default=1, type=float, help='pseudo label temperature')
-    parser.add_argument('--threshold', default=0.95, type=float, help='pseudo label threshold')
-    parser.add_argument('--out', default='result', help='directory to output the result')
-    parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
-    parser.add_argument('--seed', default=None, type=int, help="random seed")
-    parser.add_argument('--no-progress', action='store_true', help="don't use progress bar")
-
-    # augmentations
-    parser.add_argument('--n-weaks-combinations', type=int, default=2, help="how many weak augmentations to make stronger augmentation")
-    parser.add_argument("--aug_types", nargs='+', type=str, default=['crop', 'cutout', 'noise', 'rotate', 'shift'])
-
-    args = parser.parse_args()
     global best_acc
-
-    def create_model(args):
-        if args.arch == 'wideresnet':
-            import models.wideresnet as models
-            model = models.build_wideresnet(depth=args.model_depth,
-                                            widen_factor=args.model_width,
-                                            dropout=0,
-                                            num_classes=args.num_classes)
-        elif args.arch == 'resnext':
-            import models.resnext as models
-            model = models.build_resnext(cardinality=args.model_cardinality,
-                                         depth=args.model_depth,
-                                         width=args.model_width,
-                                         num_classes=args.num_classes)
-        else:
-            model = AdvancedCNN(args)
-
-        return model
-
+    args = get_args()
     device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
@@ -133,7 +29,6 @@ def main():
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO)
-
     logger.info(dict(args._get_kwargs()))
 
     if args.seed is not None:
@@ -144,6 +39,7 @@ def main():
 
     if args.dataset == 'cifar10':
         args.num_classes = 10
+        assert args.arch in ('wideresnet', 'resnext')
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 2
@@ -151,9 +47,19 @@ def main():
             args.model_cardinality = 4
             args.model_depth = 28
             args.model_width = 4
-
+    elif args.dataset == 'wm811k':
+        args.num_classes = 9
+        assert args.arch in ('wideresnet', 'resnext')
+        if args.arch == 'wideresnet':
+            args.model_depth = 28
+            args.model_width = 2
+        elif args.arch == 'resnext':
+            args.model_cardinality = 4
+            args.model_depth = 28
+            args.model_width = 4
     elif args.dataset == 'cifar100':
         args.num_classes = 100
+        assert args.arch in ('wideresnet', 'resnext')
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 8
@@ -161,12 +67,8 @@ def main():
             args.model_cardinality = 8
             args.model_depth = 29
             args.model_width = 64
-    elif args.dataset == 'wm811k':
-        pass
 
-    labeled_dataset, unlabeled_dataset, test_dataset = DATASET_GETTERS[args.dataset](
-        args, './data')
-
+    labeled_dataset, unlabeled_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     train_sampler = RandomSampler
 
     labeled_trainloader = DataLoader(
@@ -192,29 +94,31 @@ def main():
     model = create_model(args)
 
     no_decay = ['bias', 'bn']
+    # grouped_parameters = [
+    #     {'params': [p for n, p in model.backbone.named_parameters() if not any(
+    #         nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
+    #     {'params': [p for n, p in model.classifier.named_parameters() if not any(
+    #         nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
+    #     {'params': [p for n, p in model.backbone.named_parameters() if any(
+    #         nd in n for nd in no_decay)], 'weight_decay': 0.0},
+    #     {'params': [p for n, p in model.classifier.named_parameters() if any(
+    #         nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    # ]
+
     grouped_parameters = [
-
-        {'params': [p for n, p in model.backbone.named_parameters() if not any(
+        {'params': [p for n, p in model.named_parameters() if not any(
             nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
-
-        {'params': [p for n, p in model.classifier.named_parameters() if not any(
-            nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
-
-        {'params': [p for n, p in model.backbone.named_parameters() if any(
-            nd in n for nd in no_decay)], 'weight_decay': 0.0},
-
-        {'params': [p for n, p in model.classifier.named_parameters() if any(
+        {'params': [p for n, p in model.named_parameters() if any(
             nd in n for nd in no_decay)], 'weight_decay': 0.0}
-
     ]
     optimizer = optim.SGD(grouped_parameters, lr=args.lr,
                           momentum=0.9, nesterov=args.nesterov)
 
     args.epochs = math.ceil(args.total_steps / args.eval_step)
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer, args.warmup, args.total_steps)
+    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.total_steps)
 
     ema_model = None
+
     if args.use_ema:
         from models.ema import ModelEMA
         ema_model = ModelEMA(args, model, args.ema_decay)
