@@ -92,20 +92,15 @@ def main():
         num_workers=args.num_workers)
 
     model = create_model(args)
-    model.to(args.device)
+
+    NGPU = torch.cuda.device_count()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if NGPU > 1:
+        model = torch.nn.DataParallel(model, device_ids=list(range(NGPU)))
+    torch.multiprocessing.set_start_method('spawn')
+    model.to(device)
 
     no_decay = ['bias', 'bn']
-    # grouped_parameters = [
-    #     {'params': [p for n, p in model.backbone.named_parameters() if not any(
-    #         nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
-    #     {'params': [p for n, p in model.classifier.named_parameters() if not any(
-    #         nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
-    #     {'params': [p for n, p in model.backbone.named_parameters() if any(
-    #         nd in n for nd in no_decay)], 'weight_decay': 0.0},
-    #     {'params': [p for n, p in model.classifier.named_parameters() if any(
-    #         nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    # ]
-
     grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(
             nd in n for nd in no_decay)], 'weight_decay': args.wdecay},

@@ -248,15 +248,6 @@ def get_wm811k(args, root):
         'decouple_input': args.decouple_input,
     }
 
-    # train_labeled_dataset = torch.utils.data.ConcatDataset([
-    #     WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs),
-    #     WM811K('./data/wm811k/labeled/valid/', **train_labeld_data_kwargs),
-    # ])
-    # train_unlabeled_dataset = torch.utils.data.ConcatDataset([
-    #     WM811K('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs),
-    #     WM811K('./data/wm811k/unlabeled/valid/', **train_unlabeld_data_kwargs),
-    # ])
-
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811K('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
     test_dataset = WM811K('./data/wm811k/unlabeled/test/', **test_data_kwargs)

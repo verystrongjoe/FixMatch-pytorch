@@ -12,7 +12,7 @@ def mish(x):
     return x * torch.tanh(F.softplus(x))
 
 
-class nn.BatchNorm2d(nn.BatchNorm2d):
+class BatchNorm2d(nn.BatchNorm2d):
     """How Does BN Increase Collapsed Neural Network Filters? (https://arxiv.org/abs/2001.11216)"""
 
     def __init__(self, num_features, alpha=0.1, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
@@ -169,3 +169,14 @@ def build_resnext(cardinality, depth, width, num_classes):
                         depth=depth,
                         base_width=width,
                         num_classes=num_classes)
+
+
+
+if __name__ == '__main__':
+    model = build_resnext(cardinality=4, depth=28, width=4, num_classes=9)
+    x = torch.randn(128, 1, 96, 96)
+
+    x = x.to(0)
+    model.to(0)
+
+    model(x)
