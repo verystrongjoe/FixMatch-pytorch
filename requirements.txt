@@ -5,3 +5,4 @@ Pillow
 apex
 albumentations
 opencv-python
+wandb

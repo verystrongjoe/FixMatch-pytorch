@@ -9,21 +9,29 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from dataset.dataset import DATASET_GETTERS
+from datasets.dataset import DATASET_GETTERS
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, get_cosine_schedule_with_warmup
+import wandb
+from datasets.loaders import balanced_loader
+from sklearn.model_selection import train_test_split
+from torchsampler import ImbalancedDatasetSampler
+
 
 logger = logging.getLogger(__name__)
 best_acc = 0
 
 
 def main():
+
+    # fix init params and args
     global best_acc
     args = get_args()
     device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
     args.device = device
+    args.logger = logger
 
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
@@ -36,6 +44,9 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     args.writer = SummaryWriter(args.out)
+
+    # set wandb
+    wandb.init(project='wafermatch', config=args)
 
     if args.dataset == 'cifar10':
         args.num_classes = 10
@@ -69,14 +80,14 @@ def main():
             args.model_width = 64
 
     labeled_dataset, unlabeled_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
+
     train_sampler = RandomSampler
 
-    labeled_trainloader = DataLoader(
-        labeled_dataset,
-        sampler=train_sampler(labeled_dataset),
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        drop_last=True)
+    
+    labeled_trainloader = balanced_loader(labeled_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True)  
+
+    # https://github.com/ufoym/imbalanced-dataset-sampler
+    # labeled_trainloader = DataLoader(labeled_dataset,  sampler=ImbalancedDatasetSampler(labeled_dataset), batch_size=args.batch_size, num_workers=1, pin_memory=False)
 
     unlabeled_trainloader = DataLoader(
         unlabeled_dataset,
@@ -97,7 +108,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if NGPU > 1:
         model = torch.nn.DataParallel(model, device_ids=list(range(NGPU)))
-    torch.multiprocessing.set_start_method('spawn')
+        # torch.multiprocessing.set_start_method('spawn')
     model.to(device)
 
     no_decay = ['bias', 'bn']
@@ -107,8 +118,13 @@ def main():
         {'params': [p for n, p in model.named_parameters() if any(
             nd in n for nd in no_decay)], 'weight_decay': 0.0}
     ]
-    optimizer = optim.SGD(grouped_parameters, lr=args.lr,
-                          momentum=0.9, nesterov=args.nesterov)
+    if args.nm_optim == 'sgd':
+        optimizer = optim.SGD(grouped_parameters, lr=args.lr,
+                            momentum=0.9, nesterov=args.nesterov)
+    elif args.nm_optim == 'adamw':
+        optimizer = optim.AdamW(grouped_parameters, lr=args.lr)
+    else:
+        raise ValueError("unknown optim")
 
     args.epochs = math.ceil(args.total_steps / args.eval_step)
     scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.total_steps)
@@ -135,7 +151,7 @@ def main():
         scheduler.load_state_dict(checkpoint['scheduler'])
 
     logger.info("***** Running training *****")
-    logger.info(f"  Task = {args.dataset}@{args.num_labeled}")
+    logger.info(f"  Task = {args.dataset}@{args.proportion}")
     logger.info(f"  Num Epochs = {args.epochs}")
     logger.info(f"  Batch size per GPU = {args.batch_size}")
     logger.info(
@@ -169,8 +185,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
         losses_x = AverageMeter()
         losses_u = AverageMeter()
         mask_probs = AverageMeter()
+        
         if not args.no_progress:
             p_bar = tqdm(range(args.eval_step))
+        
         for batch_idx in range(args.eval_step):
             try:
                 inputs_x, targets_x = labeled_iter.next()
@@ -180,9 +198,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
                     labeled_trainloader.sampler.set_epoch(labeled_epoch)
                 labeled_iter = iter(labeled_trainloader)
                 inputs_x, targets_x = labeled_iter.next()
-
             try:
-                (inputs_u_w, inputs_u_s), _ = unlabeled_iter.next()
+                (inputs_u_w, inputs_u_s), _ = unlabeled_iter.next() 
             except:
                 if args.world_size > 1:
                     unlabeled_epoch += 1
@@ -190,27 +207,37 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
                 unlabeled_iter = iter(unlabeled_trainloader)
                 (inputs_u_w, inputs_u_s), _ = unlabeled_iter.next()
 
+
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            inputs = interleave(
-                torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.device)
+            
+            weak_image = wandb.Image(inputs_u_w[0], caption="Weak image")
+            strong_image = wandb.Image(inputs_u_s[0], caption="Strong image")
+            wandb.log({"weak_image": weak_image})
+            wandb.log({"strong_image": strong_image})
+
+            inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.device)
             targets_x = targets_x.to(args.device)
+
             logits = model(inputs)
+
             logits = de_interleave(logits, 2*args.mu+1)
+            
             logits_x = logits[:batch_size]
             logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
+
             del logits
 
             Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean')
-
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
-            max_probs, targets_u = torch.max(pseudo_label, dim=-1)
+
+            max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold를 넘은 값의 logiit
             mask = max_probs.ge(args.threshold).float()
 
-            Lu = (F.cross_entropy(logits_u_s, targets_u,
-                                  reduction='none') * mask).mean()
+            Lu = (F.cross_entropy(logits_u_s, targets_u,  
+                                  reduction='none') * mask).mean()  # cross entropy from targets_u 
 
-            loss = Lx + args.lambda_u * Lu
+            loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
 
             losses.update(loss.item())
@@ -250,12 +277,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
 
         test_loss, test_acc = test(args, test_loader, test_model, epoch)
 
-        args.writer.add_scalar('train/1.train_loss', losses.avg, epoch)
-        args.writer.add_scalar('train/2.train_loss_x', losses_x.avg, epoch)
-        args.writer.add_scalar('train/3.train_loss_u', losses_u.avg, epoch)
-        args.writer.add_scalar('train/4.mask', mask_probs.avg, epoch)
-        args.writer.add_scalar('test/1.test_acc', test_acc, epoch)
-        args.writer.add_scalar('test/2.test_loss', test_loss, epoch)
+        wandb.log('train/1.train_loss', losses.avg)
+        wandb.log('train/2.train_loss_x', losses_x.avg)
+        wandb.log('train/3.train_loss_u', losses_u.avg)
+        wandb.log('train/4.mask', mask_probs.avg)
+        wandb.log('test/1.test_acc', test_acc)
+        wandb.log('test/2.test_loss', test_loss)
 
         is_best = test_acc > best_acc
         best_acc = max(test_acc, best_acc)
@@ -326,4 +353,5 @@ def test(args, test_loader, model, epoch):
 
 
 if __name__ == '__main__':
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
     main()

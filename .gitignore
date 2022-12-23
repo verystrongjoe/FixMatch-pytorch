@@ -1,7 +1,7 @@
 .idea/
-
-
-results
+result/
+results/
+wandb/
 data
 .vscode
 # Byte-compiled / optimized / DLL files

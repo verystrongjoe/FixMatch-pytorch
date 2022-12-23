@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 from torchvision import datasets
 from numpy import random
-from dataset.transforms import WM811KTransform, TransformFixMatch, TransformFixMatchWafer
+from datasets.transforms import WM811KTransform, TransformFixMatch, TransformFixMatchWafer
 from torchvision import transforms
 from torch.utils.data import Dataset
 import torch
@@ -12,6 +12,7 @@ import glob
 import os
 import pathlib
 import cv2
+from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
@@ -125,30 +126,33 @@ class WM811K(Dataset):
     idx2label = [k for k in label2idx.keys()]
     num_classes = len(idx2label) - 1  # exclude unlabeled (-)
 
-    def __init__(self, root, transform=None, proportion=1.0, decouple_input: bool = True, **kwargs):
+    def __init__(self, root, transform=None, **kwargs):
         super(WM811K, self).__init__()
 
         self.root = root
         self.transform = transform
-        self.proportion = proportion
-        self.decouple_input = decouple_input
+        self.args = kwargs.get('args', 0)
 
         images  = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
         labels  = [pathlib.PurePath(image).parent.name for image in images]          # Parent directory names are class label strings
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
-        samples = list(zip(images, targets))                                         # Make (path, target) pairs
-
-        if self.proportion < 1.0:
-            # Randomly sample a proportion of the data
-            self.samples, _ = train_test_split(
-                samples,
-                train_size=self.proportion,
-                stratify=[s[1] for s in samples],
-                shuffle=True,
-                random_state=1993 + kwargs.get('seed', 0),
-            )
+        
+        if self.args.proportion != 1.:  
+            X_train, X_test, y_train, y_test = train_test_split(
+                images, targets, train_size=len(targets)*self.args.proportion, stratify=targets,
+                shuffle=True,random_state=1993 + self.args.seed)
+            images = X_train
+            targets = y_train
+            self.args.logger.info(f'It uses only {len(targets)} samples of train set because args.proportion is {self.args.proportion}')
         else:
-            self.samples = samples
+            self.args.logger.info(f'It uses 100% {len(targets)} samples of train set because args.proportion is 1.')
+
+        self.targets = targets
+        self.samples = list(zip(images, targets)) # Make (path, target) pairs
+        
+    def get_labels(self):
+        return self.targets
+
 
     def __getitem__(self, idx):
         path, y = self.samples[idx]
@@ -157,8 +161,8 @@ class WM811K(Dataset):
         if self.transform is not None:
             x = self.transform(x)
 
-        if self.decouple_input:
-            x = self.decouple_mask(x)
+        if self.args.decouple_input:
+            x = self.args.decouple_mask(x)
 
         return x, y
 
@@ -237,15 +241,15 @@ class CIFAR100SSL(datasets.CIFAR100):
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
         'transform': WM811KTransform(mode='weak'),
-        'decouple_input': args.decouple_input,
+        'args': args
     }
     train_unlabeld_data_kwargs = {
         'transform': TransformFixMatchWafer(args),
-        'decouple_input': args.decouple_input,
+        'args': args,
     }
     test_data_kwargs = {
         'transform': WM811KTransform(mode='test'),
-        'decouple_input': args.decouple_input,
+        'args': args,
     }
 
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
