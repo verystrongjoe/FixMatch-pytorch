@@ -11,11 +11,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from datasets.dataset import DATASET_GETTERS
 from utils import AverageMeter, accuracy
-from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, get_cosine_schedule_with_warmup
+from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, get_cosine_schedule_with_rmup
 import wandb
 from datasets.loaders import balanced_loader
 from sklearn.model_selection import train_test_split
 from torchsampler import ImbalancedDatasetSampler
+from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ def main():
 
     # set wandb
     wandb.init(project='wafermatch', config=args)
+    wandb.run.name = f"{yymmddhhmm}_arch_{args.arch}_proportion_{args.proportion}"
+    wandb.run.save()
 
     if args.dataset == 'cifar10':
         args.num_classes = 10
@@ -80,12 +83,9 @@ def main():
             args.model_width = 64
 
     labeled_dataset, unlabeled_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-
     train_sampler = RandomSampler
 
-    
-    labeled_trainloader = balanced_loader(labeled_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True)  
-
+    labeled_trainloader = balanced_loader(labeled_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True, drop_last=True)  
     # https://github.com/ufoym/imbalanced-dataset-sampler
     # labeled_trainloader = DataLoader(labeled_dataset,  sampler=ImbalancedDatasetSampler(labeled_dataset), batch_size=args.batch_size, num_workers=1, pin_memory=False)
 
@@ -210,12 +210,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            
-            weak_image = wandb.Image(inputs_u_w[0], caption="Weak image")
-            strong_image = wandb.Image(inputs_u_s[0], caption="Strong image")
-            wandb.log({"weak_image": weak_image})
-            wandb.log({"strong_image": strong_image})
-
             inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.device)
             targets_x = targets_x.to(args.device)
 
@@ -277,15 +271,21 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
 
         test_loss, test_acc = test(args, test_loader, test_model, epoch)
 
-        wandb.log('train/1.train_loss', losses.avg)
-        wandb.log('train/2.train_loss_x', losses_x.avg)
-        wandb.log('train/3.train_loss_u', losses_u.avg)
-        wandb.log('train/4.mask', mask_probs.avg)
-        wandb.log('test/1.test_acc', test_acc)
-        wandb.log('test/2.test_loss', test_loss)
+        weak_image = wandb.Image(inputs_u_w[0], caption="Weak image")
+        strong_image = wandb.Image(inputs_u_s[0], caption="Strong image")
+        wandb.log({"weak_image": weak_image})
+        wandb.log({"strong_image": strong_image})
+        wandb.log({
+            'train/1.train_loss': losses.avg,
+            'train/2.train_loss_x': losses_x.avg,
+            'train/3.train_loss_u': losses_u.avg,
+            'train/4.mask': mask_probs.avg,
+            'test/1.test_acc': test_acc,
+            'test/2.test_loss': test_loss})
 
         is_best = test_acc > best_acc
         best_acc = max(test_acc, best_acc)
+        wandb.run.summary["best_accuracy"] = best_acc
 
         model_to_save = model.module if hasattr(model, "module") else model
         if args.use_ema:
@@ -313,7 +313,7 @@ def test(args, test_loader, model, epoch):
     data_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
-    top5 = AverageMeter()
+    top3 = AverageMeter()
     end = time.time()
 
     if not args.no_progress:
@@ -327,31 +327,33 @@ def test(args, test_loader, model, epoch):
             inputs = inputs.to(args.device)
             targets = targets.to(args.device)
             outputs = model(inputs)
+
             loss = F.cross_entropy(outputs, targets)
-            prec1, prec5 = accuracy(outputs, targets, topk=(1, 5))
+            prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
             losses.update(loss.item(), inputs.shape[0])
             top1.update(prec1.item(), inputs.shape[0])
-            top5.update(prec5.item(), inputs.shape[0])
+            top3.update(prec3.item(), inputs.shape[0])
             batch_time.update(time.time() - end)
             end = time.time()
             if not args.no_progress:
-                test_loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top5: {top5:.2f}. ".format(
+                test_loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. ".format(
                     batch=batch_idx + 1,
                     iter=len(test_loader),
                     data=data_time.avg,
                     bt=batch_time.avg,
                     loss=losses.avg,
                     top1=top1.avg,
-                    top5=top5.avg,
+                    top3=top3.avg,
                 ))
         if not args.no_progress:
             test_loader.close()
 
     logger.info("top-1 acc: {:.2f}".format(top1.avg))
-    logger.info("top-5 acc: {:.2f}".format(top5.avg))
+    logger.info("top-3 acc: {:.2f}".format(top3.avg))
     return losses.avg, top1.avg
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+    #os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+    yymmddhhmm = datetime.now().strftime('%y%m%d%H%M')
     main()

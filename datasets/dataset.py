@@ -254,7 +254,7 @@ def get_wm811k(args, root):
 
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811K('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
-    test_dataset = WM811K('./data/wm811k/unlabeled/test/', **test_data_kwargs)
+    test_dataset = WM811K('./data/wm811k/labeled/test/', **test_data_kwargs)
 
     return train_labeled_dataset, train_unlabeled_dataset, test_dataset
 
