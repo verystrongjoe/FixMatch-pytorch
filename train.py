@@ -485,7 +485,7 @@ def test(args, loader, model, epoch):
             # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
-            auprc = fn_auprc.to(args.device)(torch.argmax(outputs, dim=1), targets)
+            auprc = fn_auprc.to(args.device)(outputs, targets)
             f1 = fn_f1score.to(args.device)(torch.argmax(outputs, dim=1), targets)
             
             wandb.log({"conf_mat" : 
