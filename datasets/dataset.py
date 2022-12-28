@@ -13,6 +13,7 @@ import os
 import pathlib
 import cv2
 from sklearn.model_selection import train_test_split
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -135,11 +136,18 @@ class WM811K(Dataset):
 
         images  = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
         labels  = [pathlib.PurePath(image).parent.name for image in images]          # Parent directory names are class label strings
+
+        # remove none!!!
+        none_idxes = (np.asarray(labels) == 'none')
+        images = np.asarray(images)[~none_idxes]
+        labels = np.asarray(labels)[~none_idxes]
+        self.args.logger.info(pd.Series(labels).value_counts())
+
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
         
         if self.args.proportion != 1.:  
             X_train, X_test, y_train, y_test = train_test_split(
-                images, targets, train_size=len(targets)*self.args.proportion, stratify=targets,
+                images, targets, train_size=int(len(targets)*self.args.proportion), stratify=targets,
                 shuffle=True,random_state=1993 + self.args.seed)
             images = X_train
             targets = y_train
@@ -162,7 +170,7 @@ class WM811K(Dataset):
             x = self.transform(x)
 
         if self.args.decouple_input:
-            x = self.args.decouple_mask(x)
+            x = self.decouple_mask(x)
 
         return x, y
 
@@ -240,7 +248,7 @@ class CIFAR100SSL(datasets.CIFAR100):
 
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
-        'transform': WM811KTransform(mode='weak'),
+        'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='weak'),
         'args': args
     }
     train_unlabeld_data_kwargs = {
@@ -248,12 +256,13 @@ def get_wm811k(args, root):
         'args': args,
     }
     test_data_kwargs = {
-        'transform': WM811KTransform(mode='test'),
+        'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
         'args': args,
     }
 
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811K('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
+    valid_dataset = WM811K('./data/wm811k/labeled/valid/', **test_data_kwargs)  # it is same as test dataset.
     test_dataset = WM811K('./data/wm811k/labeled/test/', **test_data_kwargs)
 
     return train_labeled_dataset, train_unlabeled_dataset, test_dataset
@@ -263,3 +272,7 @@ DATASET_GETTERS = {'cifar10': get_cifar10,
                    'cifar100': get_cifar100,
                    'wm811k': get_wm811k
                    }
+
+
+if __name__ == '__main__':
+    train_labeled_dataset = WM811K('data/wm811k/labeled/train/', None)

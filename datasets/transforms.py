@@ -57,7 +57,7 @@ class MaskedBernoulliNoise(ImageOnlyTransform):
 class WM811KTransform(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
-                 size: tuple = (96, 96),
+                 size: tuple = (32, 32),
                  mode: str = 'test',
                  **kwargs):
         assert mode in ['test', 'weak']
@@ -125,8 +125,7 @@ class WM811KTransform(object):
             #                       padding_mode='reflect'),
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=32, width=32, p=1.0),
-            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.RandomCrop(height=size[0], width=size[1], p=1.0),
             ToWBM(),
         ]
         return transform
@@ -379,7 +378,7 @@ class WM811KTransformMultiple(object):
                  args,
                  ):
         _transforms = []
-        size = (96, 96)
+        size = (args.size_xy, args.size_xy)
         resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST)
         _transforms.append(resize_transform)
         modes = []
@@ -424,7 +423,7 @@ class WM811KTransformMultiple(object):
             elif mode == 'test':
                 pass
         # todo : check here
-        _transforms.append(A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST))
+        _transforms.append(A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST))
         _transforms.append(ToWBM())
 
         for i in range(len(magnitudes)):
@@ -471,23 +470,16 @@ class TransformFixMatchWafer(object):
             # transforms.RandomCrop(size=32,
             #                       padding=int(32 * 0.125),
             #                       padding_mode='reflect')
-            # todo : check here
-            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=32, width=32, p=1.0),
-            # todo : check here
-            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
-            ToWBM(),
+            A.RandomCrop(height=args.size_xy, width=args.size_xy),
+            ToWBM()
         ])
 
         self.basic = A.Compose([
-            # transforms.RandomHorizontalFlip(),
-            # transforms.RandomCrop(size=32,
-            #                       padding=int(32 * 0.125),
-            #                       padding_mode='reflect'),
-            A.Resize(width=96, height=96, interpolation=cv2.INTER_NEAREST),
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=32, width=32, p=1.0),
+            A.RandomCrop(height=args.size_xy, width=args.size_xy),
         ])
         self.strong_trans = WM811KTransformMultiple(args)
 

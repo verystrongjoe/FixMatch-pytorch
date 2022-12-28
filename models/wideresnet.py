@@ -131,9 +131,10 @@ if __name__ == '__main__':
                                     dropout=0,
                                     num_classes=9)
 
-    x = torch.randn(128, 1, 96, 96)
-
+    x = torch.randn(128, 2, 96, 96)
 
     x = x.to(0)
     model.to(0)
-    model(x)
+    out = model(x)
+    
+    print(out.shape)

@@ -17,3 +17,16 @@ T
 threshold
 out
 n-weaks-combinations
+
+
+
+# train dataset
+4294+555+5189+9680+3593++886+1193+149
+25539
+
+
+
+# metric
+
+F-1 SCORE
+https://torchmetrics.readthedocs.io/en/stable/classification/f1_score.html
