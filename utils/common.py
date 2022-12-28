@@ -69,6 +69,8 @@ def get_args():
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=1.)
+    parser.add_argument('--num_labeled', type=int, help='number  of labeled data used', default=4000)
+
     parser.add_argument('--num_channel', type=int, default=2)
     parser.add_argument('--num_classes', type=int, default=8)
     parser.add_argument('--size-xy', type=int, default=32)

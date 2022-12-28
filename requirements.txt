@@ -1,8 +1,8 @@
 tensorboard
 numpy
 tqdm
-Pillow
-apex
 albumentations
 opencv-python
 wandb
+torchmetrics
+torchsampler

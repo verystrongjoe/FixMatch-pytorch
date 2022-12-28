@@ -41,7 +41,7 @@ class ImbalancedDatasetSampler(Sampler):
         if dataset.__class__.__name__ == 'WM811K':
             targets = [s[-1] for s in dataset.samples]
         else:
-            raise NotImplementedError
+            targets = dataset.targets
         return Counter(targets)
 
     @staticmethod

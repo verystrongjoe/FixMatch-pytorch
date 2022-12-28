@@ -1,6 +1,9 @@
 import logging
 import math
 import os
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
 import time
 import numpy as np
 import torch
@@ -92,7 +95,16 @@ def main():
     labeled_dataset, unlabeled_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     train_sampler = RandomSampler
 
-    labeled_trainloader = balanced_loader(labeled_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True, drop_last=True)  
+    if args.dataset == 'wm811k':
+        labeled_trainloader = balanced_loader(labeled_dataset, batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    else:
+        labeled_trainloader = DataLoader(
+            labeled_dataset,
+            sampler=train_sampler(labeled_dataset),
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            drop_last=True)
+
     # https://github.com/ufoym/imbalanced-dataset-sampler
     # labeled_trainloader = DataLoader(labeled_dataset,  sampler=ImbalancedDatasetSampler(labeled_dataset), batch_size=args.batch_size, num_workers=1, pin_memory=False)
 
@@ -106,11 +118,11 @@ def main():
         num_workers=args.num_workers,
         drop_last=True)
 
-    valid_loader = DataLoader(
-        valid_dataset,
-        sampler=SequentialSampler(valid_dataset),
-        batch_size=args.batch_size,
-        num_workers=args.num_workers)
+    # valid_loader = DataLoader(
+    #     valid_dataset,
+    #     sampler=SequentialSampler(valid_dataset),
+    #     batch_size=args.batch_size,
+    #     num_workers=args.num_workers)
 
     test_loader = DataLoader(
         test_dataset,
@@ -176,12 +188,12 @@ def main():
         f"  Total train batch size = {args.batch_size*args.world_size}")
     logger.info(f"  Total optimization steps = {args.total_steps}")
 
-    model.train()
-    train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
+    model.zero_grad()
+    train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
           model, optimizer, ema_model, scheduler)
 
 
-def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
+def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
           model, optimizer, ema_model, scheduler):
     global best_f1
     test_f1 = []
@@ -256,10 +268,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             losses.update(loss.item())
             losses_x.update(Lx.item())
             losses_u.update(Lu.item())
+
             optimizer.step()
             scheduler.step()
             if args.use_ema:
                 ema_model.update(model)
+            model.zero_grad()
 
             batch_time.update(time.time() - end)
             end = time.time()
@@ -499,7 +513,6 @@ def test(args, loader, model, epoch):
 
         test_image = wandb.Image(inputs[0], caption="Test image")
         wandb.log({"test image": test_image})
-        
 
         logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
         logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
@@ -509,8 +522,8 @@ def test(args, loader, model, epoch):
     return test_losses.avg, test_top1.avg, test_auprc.avg, test_f1.avg
 
 
-
 if __name__ == '__main__':
     # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
     # yymmddhhmm = datetime.now().strftime('%y%m%d%H%M')
     main()
