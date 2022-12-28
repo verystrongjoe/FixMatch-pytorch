@@ -124,6 +124,7 @@ class WM811K(Dataset):
         'none'      : 8,
         '-'         : 9,
     }
+    
     idx2label = [k for k in label2idx.keys()]
     num_classes = len(idx2label) - 1  # exclude unlabeled (-)
 

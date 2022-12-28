@@ -21,13 +21,13 @@ from sklearn.model_selection import train_test_split
 from torchsampler import ImbalancedDatasetSampler
 from datetime import datetime
 import torchmetrics
+from datasets.dataset import WM811K
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
 
 
 def main():
-
     # fix init params and args
     global best_f1
     args = get_args()
@@ -485,9 +485,14 @@ def test(args, loader, model, epoch):
             # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
-            auprc = fn_auprc.to(args.device)(outputs, targets)
-            f1 = fn_f1score.to(args.device)(outputs, targets)
+            auprc = fn_auprc.to(args.device)(torch.argmax(outputs, dim=1), targets)
+            f1 = fn_f1score.to(args.device)(torch.argmax(outputs, dim=1), targets)
             
+            wandb.log({"conf_mat" : 
+                wandb.plot.confusion_matrix(probs=torch.softmax(outputs, axis=1).cpu().detach().numpy(),
+                y_true=targets.cpu().detach().numpy(), 
+                preds=None,
+                class_names=WM811K.idx2label)})
         
             test_losses.update(loss.item(), inputs.shape[0])
             test_top1.update(prec1.item(), inputs.shape[0])
