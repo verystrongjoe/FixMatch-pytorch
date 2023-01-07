@@ -14,6 +14,7 @@ import pathlib
 import cv2
 from sklearn.model_selection import train_test_split
 import pandas as pd
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,6 @@ class WM811K(Dataset):
     def __getitem__(self, idx):
         path, y = self.samples[idx]
         x = self.load_image_cv2(path)
-
         if self.transform is not None:
             x = self.transform(x)
 

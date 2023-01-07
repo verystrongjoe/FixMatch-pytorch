@@ -2,8 +2,10 @@ import logging
 import math
 import os
 
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
+# os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+ 
 import time
 import numpy as np
 import torch
@@ -18,6 +20,7 @@ from utils.common import get_args, de_interleave, interleave, save_checkpoint, s
 import wandb
 from datasets.loaders import balanced_loader
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score
 from torchsampler import ImbalancedDatasetSampler
 from datetime import datetime
 import torchmetrics
@@ -139,20 +142,20 @@ def main():
         # torch.multiprocessing.set_start_method('spawn') # todo : check this.
     model.to(device)
 
-    # no_decay = ['bias', 'bn']
-    # grouped_parameters = [
-    #     {'params': [p for n, p in model.named_parameters() if not any(
-    #         nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
-    #     {'params': [p for n, p in model.named_parameters() if any(
-    #         nd in n for nd in no_decay)], 'weight_decay': 0.0}
-    # ]
+    no_decay = ['bias', 'bn']
+    grouped_parameters = [
+        {'params': [p for n, p in model.named_parameters() if not any(
+            nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
+        {'params': [p for n, p in model.named_parameters() if any(
+            nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
     
     
     if args.nm_optim == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=args.lr,   # grouped_parameters
+        optimizer = optim.SGD(grouped_parameters, lr=args.lr,   # grouped_parameters
                             momentum=0.9, nesterov=args.nesterov)
     elif args.nm_optim == 'adamw':
-        optimizer = optim.AdamW(model.parameters(), lr=args.lr)  # grouped_parameters   
+        optimizer = optim.AdamW(grouped_parameters, lr=args.lr)  # grouped_parameters   
     else:
         raise ValueError("unknown optim")
 
@@ -395,6 +398,7 @@ def valid_and_test(args, valid_loader, test_loader, model, epoch):
                 auprc = fn_auprc.to(args.device)(outputs, targets)
                 f1 = fn_f1score.to(args.device)(outputs, targets)
                 
+                
                 if nm == 'valid':
                     valid_losses.update(loss.item(), inputs.shape[0])
                     valid_top1.update(prec1.item(), inputs.shape[0])
@@ -473,6 +477,10 @@ def test(args, loader, model, epoch):
     if not args.no_progress:
         loader = tqdm(loader)
 
+    total_preds = []
+    total_reals = []
+    
+    
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(loader):
             data_time.update(time.time() - end)
@@ -482,17 +490,14 @@ def test(args, loader, model, epoch):
             targets = targets.to(args.device)
             outputs = model(inputs)
 
+            total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
+            total_reals.append(targets.cpu().detach().numpy())
+
             # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
             auprc = fn_auprc.to(args.device)(outputs, targets)
             f1 = fn_f1score.to(args.device)(torch.argmax(outputs, dim=1), targets)
-            
-            wandb.log({"conf_mat" : 
-                wandb.plot.confusion_matrix(probs=torch.softmax(outputs, axis=1).cpu().detach().numpy(),
-                y_true=targets.cpu().detach().numpy(), 
-                preds=None,
-                class_names=WM811K.idx2label)})
         
             test_losses.update(loss.item(), inputs.shape[0])
             test_top1.update(prec1.item(), inputs.shape[0])
@@ -515,20 +520,35 @@ def test(args, loader, model, epoch):
                 ))
         if not args.no_progress:
             loader.close()
+            
+        total_preds = np.concatenate(total_preds)
+        total_reals = np.concatenate(total_reals)   
+        
+        # todo : delete someday..
+        # assert np.unique(total_preds) in list(range(args.num_classes))
+        
+        wandb.log({f"conf_mat_{epoch}" : 
+            wandb.plot.confusion_matrix(
+                probs=None,
+                y_true=total_reals, 
+                preds=total_preds,
+                class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+            }
+        )
+        f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
         test_image = wandb.Image(inputs[0], caption="Test image")
         wandb.log({"test image": test_image})
 
         logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
         logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
-        logger.info("auprc: {:.2f}".format(test_auprc.avg))
-        logger.info("f1: {:.2f}".format(test_f1.avg))
+        # logger.info("auprc: {:.2f}".format(test_auprc.avg))
+        logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
+        logger.info("f1: {:.2f}".format(f1))
 
-    return test_losses.avg, test_top1.avg, test_auprc.avg, test_f1.avg
+    return test_losses.avg, test_top1.avg, test_auprc.avg, f1
 
 
 if __name__ == '__main__':
-    # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-    os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
     # yymmddhhmm = datetime.now().strftime('%y%m%d%H%M')
     main()

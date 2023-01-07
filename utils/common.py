@@ -60,7 +60,7 @@ def de_interleave(x, size):
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
     parser.add_argument('--num_gpu', default='0', type=int, help='id(s) for CUDA_VISIBLE_DEVICES')
-    parser.add_argument('--num-workers', type=int, default=100, help='number of workers')
+    parser.add_argument('--num-workers', type=int, default=10, help='number of workers')
 
     # project settings
     parser.add_argument('--project-name', required=True, type=str)
@@ -87,14 +87,14 @@ def get_args():
 
 
     # experiment
-    parser.add_argument('--total-steps', default=318*170, type=int, help='number of total steps to run')
+    parser.add_argument('--total-steps', default=318*150, type=int, help='number of total steps to run')
     parser.add_argument('--eval-step', default=318, type=int, help='number of eval steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
     parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
     parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
     parser.add_argument('--lr', '--learning-rate', default=0.04, type=float, help='initial learning rate')
     parser.add_argument('--warmup', default=0, type=float, help='warmup epochs (unlabeled data based)')
-    parser.add_argument('--wdecay', default=5e-4, type=float, help='weight decay')
+    parser.add_argument('--wdecay', default=3e-4, type=float, help='weight decay')
     parser.add_argument('--nesterov', action='store_true', default=True, help='use nesterov momentum')
     parser.add_argument('--use-ema', action='store_true', default=True, help='use EMA model')
     parser.add_argument('--ema-decay', default=0.999, type=float, help='EMA decay rate')

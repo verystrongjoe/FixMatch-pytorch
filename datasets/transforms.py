@@ -484,9 +484,7 @@ class TransformFixMatchWafer(object):
         self.strong_trans = WM811KTransformMultiple(args)
 
     def __call__(self, x):
-
         weak = self.weak(image=x)['image']
-
         strong = self.basic(image=x)
         strong = self.strong_trans(strong['image'])
         return weak, strong
