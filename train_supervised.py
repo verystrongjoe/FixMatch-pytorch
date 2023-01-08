@@ -22,7 +22,6 @@ from datetime import datetime
 import torchmetrics
 from datasets.dataset import WM811K
 
-logger = logging.getLogger(__name__)
 best_f1 = 0
 
 def prerequisite(args):
@@ -348,4 +347,5 @@ def test(args, loader, model, epoch):
 
 
 if __name__ == '__main__':
+    logger = logging.getLogger(__name__)
     main()
