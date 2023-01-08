@@ -60,7 +60,7 @@ def de_interleave(x, size):
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
     parser.add_argument('--num_gpu', default='0', type=int, help='id(s) for CUDA_VISIBLE_DEVICES')
-    parser.add_argument('--num-workers', type=int, default=10, help='number of workers')
+    parser.add_argument('--num-workers', type=int, default=0, help='number of workers')
 
     # project settings
     parser.add_argument('--project-name', required=True, type=str)
@@ -84,7 +84,6 @@ def get_args():
     # parser.add_argument('--arch-config', default='18', type=str)
     parser.add_argument('--arch', type=str, default='wideresnet',
                         choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
-
 
     # experiment
     parser.add_argument('--total-steps', default=318*150, type=int, help='number of total steps to run')
@@ -132,9 +131,6 @@ def create_model(args):
                                      depth=args.model_depth,
                                      width=args.model_width,
                                      num_classes=args.num_classes)
-    # else:
-    #     model = AdvancedCNN(args)
-
     return model
 
 

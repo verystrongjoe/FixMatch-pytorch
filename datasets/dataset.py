@@ -266,7 +266,7 @@ def get_wm811k(args, root):
     valid_dataset = WM811K('./data/wm811k/labeled/valid/', **test_data_kwargs)  # it is same as test dataset.
     test_dataset = WM811K('./data/wm811k/labeled/test/', **test_data_kwargs)
 
-    return train_labeled_dataset, train_unlabeled_dataset, test_dataset
+    return train_labeled_dataset, train_unlabeled_dataset, valid_dataset, test_dataset
 
 
 DATASET_GETTERS = {'cifar10': get_cifar10,
