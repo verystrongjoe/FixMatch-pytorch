@@ -76,8 +76,9 @@ class WideResNet(nn.Module):
         assert((depth - 4) % 6 == 0)
         n = (depth - 4) / 6
         block = BasicBlock
+
         # 1st conv before any network block
-        self.conv1 = nn.Conv2d(1, channels[0], kernel_size=3, stride=1,
+        self.conv1 = nn.Conv2d(3, channels[0], kernel_size=3, stride=1,
                                padding=1, bias=False)
         # 1st block
         self.block1 = NetworkBlock(
@@ -136,5 +137,4 @@ if __name__ == '__main__':
     x = x.to(0)
     model.to(0)
     out = model(x)
-    
     print(out.shape)

@@ -9,6 +9,9 @@ from torch.distributions import Bernoulli
 import albumentations as A
 import cv2
 from PIL import Image
+from utils.common import create_model
+from typing import Any, Dict, Tuple, Union
+
 
 class ToWBM(BasicTransform):
     def __init__(self, always_apply: bool = True, p: float = 1.0):
@@ -396,14 +399,27 @@ class WM811KTransformMultiple(object):
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 ratio = (0.9, 1.1)  # WaPIRL
+                # Torchvision's variant of crop a random part of the input and rescale it to some size.
+                    # scale	[float, float] :  range of size of the origin size cropped
+                    # ratio	[float, float] :  range of aspect ratio of the origin aspect ratio cropped
+                    # interpolation	OpenCV flag : flag that is used to specify the interpolation algorithm. Should be one of: cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4. Default: cv2.INTER_LINEAR.
+                    # p	float : probability of applying the transform. Default: 1.
                 _transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
             elif mode == 'cutout':
-                num_holes: int = 4  # WaPIRL
+                num_holes: int = 1  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
                 range_magnitude = (0.0, 0.5)
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 cut_h = int(size[0] * final_magnitude)
                 cut_w = int(size[1] * final_magnitude)
-                _transforms.append(A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5))
+                if args.keep:
+                    _transforms.append(
+                        A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5)
+                    )
+                else:
+                    _transforms.append(
+                        KeepCutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5)
+                    )
+
             elif mode == 'rotate':
                 range_magnitude = (0, 360)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
@@ -422,7 +438,7 @@ class WM811KTransformMultiple(object):
             ),)
             elif mode == 'test':
                 pass
-        # todo : check here
+
         _transforms.append(A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST))
         _transforms.append(ToWBM())
 
@@ -431,7 +447,6 @@ class WM811KTransformMultiple(object):
             if mode == 'noise':
                 range_magnitude = (0., 0.20)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
-                _transforms.append(ToWBM())
                 _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
 
         self.transform = A.Compose(_transforms)
@@ -466,25 +481,84 @@ class TransformFixMatch(object):
 class TransformFixMatchWafer(object):
     def __init__(self, args):
         self.weak = A.Compose([
-            # transforms.RandomHorizontalFlip(),
-            # transforms.RandomCrop(size=32,
-            #                       padding=int(32 * 0.125),
-            #                       padding_mode='reflect')
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=args.size_xy, width=args.size_xy),
+            A.RandomCrop(height=args.size_xy, width=args.size_xy),  # keep!!
             ToWBM()
         ])
 
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=args.size_xy, width=args.size_xy),
+            A.RandomCrop(height=args.size_xy, width=args.size_xy),  # keep!!
         ])
-        self.strong_trans = WM811KTransformMultiple(args)
+
+        if args.keep:
+            # todo : change specific directory for proportion
+            checkpoint = torch.load('results/wm811k-supervised/model_best.pth.tar')
+            args.supervised_model = create_model(args)
+            args.supervised_model.load_state_dict(checkpoint['state_dict'])
+        self.args = args
 
     def __call__(self, x):
         weak = self.weak(image=x)['image']
         strong = self.basic(image=x)
-        strong = self.strong_trans(strong['image'])
+        strong_trans = WM811KTransformMultiple(self.args)
+        strong = strong_trans(strong['image'])
         return weak, strong
+
+
+class KeepCutout(ImageOnlyTransform):
+    def __init__(self,
+                 args,
+                 num_holes: int = 8,
+                 max_h_size: int = 8,
+                 max_w_size: int = 8,
+                 fill_value: Union[int, float] = 0,
+                 always_apply: bool = False,
+                 p: float = 0.5):
+        super(KeepCutout, self).__init__(always_apply, p)
+        self.num_holes = num_holes
+        self.max_h_size = max_h_size
+        self.max_w_size = max_w_size
+        self.fill_value = fill_value
+        self.args = args
+
+    def apply(self, img, **params):
+        for param in self.args.supervised_model.parameters():
+            param.requires_grad = False
+        self.args.supervised_model.eval()
+        images_ = img.clone().detach()
+        images_.requires_grad = True
+        preds = self.args.supervised_model(images_)
+        score, _ = torch.max(preds, 1)
+        score.mean().backward()
+        slc_, _ = torch.max(torch.abs(images_.grad), dim=1)
+        b, h, w = slc_.shape
+        slc_ = slc_.view(slc_.size(0), -1)
+        slc_ -= slc_.min(1, keepdim=True)[0]
+        slc_ /= slc_.max(1, keepdim=True)[0]
+        slc_ = slc_.view(b, h, w)
+
+        for i, (img, slc) in enumerate(zip(images_, slc_)):
+            mask = np.ones((h, w), np.float32)
+            while (True):
+                y = np.random.randint(h)
+                x = np.random.randint(w)
+                y1 = np.clip(y - self.length // 2, 0, h)
+                y2 = np.clip(y + self.length // 2, 0, h)
+                x1 = np.clip(x - self.length // 2, 0, w)
+                x2 = np.clip(x + self.length // 2, 0, w)
+                if slc[y1: y2, x1: x2].mean() < 0.6:
+                    mask[y1: y2, x1: x2] = 0.
+                    break
+            mask = torch.from_numpy(mask)
+            mask = mask.expand_as(img).cuda()
+            img = img * mask
+
+        return img
+
+
+
+
+

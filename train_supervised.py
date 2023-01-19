@@ -186,6 +186,10 @@ def train(args, labeled_trainloader, valid_loader, test_loader,
             batch_size = inputs_x.shape[0]
             targets_x = targets_x.to(args.device)
             inputs_x = inputs_x.to(args.device)
+
+            # make 3 channels
+            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
+            inputs_x = inputs_x.permute(0, 3, 1, 2)  # (c, h, w)
             logits = model(inputs_x)
             loss = F.cross_entropy(logits, targets_x.long(), reduction='mean')
             loss.backward()
@@ -285,6 +289,10 @@ def test(args, loader, model, epoch):
         for batch_idx, (inputs, targets) in enumerate(loader):
             data_time.update(time.time() - end)
             model.eval()
+
+            # make 3 channels
+            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
+            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
 
             inputs = inputs.to(args.device)
             targets = targets.to(args.device)

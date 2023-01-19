@@ -65,7 +65,6 @@ def get_args():
     # project settings
     parser.add_argument('--project-name', required=True, type=str)
 
-
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=1.)
@@ -113,6 +112,7 @@ def get_args():
     parser.add_argument('--n-weaks-combinations', type=int, default=2,
                         help="how many weak augmentations to make stronger augmentation")
     parser.add_argument("--aug_types", nargs='+', type=str, default=['crop', 'cutout', 'noise', 'rotate', 'shift'])
+    parser.add_argument('--keep', action='store_true', help='keep-cutout or keep-paste')
 
     args = parser.parse_args()
     return args
