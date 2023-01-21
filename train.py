@@ -69,15 +69,12 @@ def prerequisite(args):
         raise ValueError('unknown dataset')
 
 
-
 def main():
     # fix init params and args
     global best_f1
-
     args = get_args()
     prerequisite(args)
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-
     labeled_trainloader = balanced_loader(labeled_dataset,
                                           batch_size=args.batch_size,
                                           num_workers=args.num_workers,
@@ -209,7 +206,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
 
             F.one_hot(inputs_u_s.long(), num_classes=3).squeeze().float()
 
-
             # make 3 channels
             inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
             inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
@@ -291,7 +287,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             wandb.run.summary["test_best_loss"] = test_loss  
             wandb.run.summary["test_best_auprc"] = test_auprc  
             wandb.run.summary["test_best_f1"] = test_f1  
-            
 
         model_to_save = model.module if hasattr(model, "module") else model
         if args.use_ema:

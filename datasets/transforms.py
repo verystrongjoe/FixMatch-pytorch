@@ -4,32 +4,34 @@ from numpy import random
 from torchvision import transforms
 from .randaugment import RandAugmentMC
 from albumentations.core.transforms_interface import BasicTransform
-from albumentations.core.transforms_interface import ImageOnlyTransform
+from albumentations.core.transforms_interface import ImageOnlyTransform, DualTransform
 from torch.distributions import Bernoulli
 import albumentations as A
 import cv2
-from PIL import Image
 from utils.common import create_model
 from typing import Any, Dict, Tuple, Union
+import torch.nn.functional as F
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
 
 
-class ToWBM(BasicTransform):
+
+
+class ToWBM(ImageOnlyTransform):
     def __init__(self, always_apply: bool = True, p: float = 1.0):
         super(ToWBM, self).__init__(always_apply, p)
 
     @property
-    def targets(self):
+    def targets(self) -> Dict[str, Callable]:
         return {"image": self.apply}
 
     def apply(self, img: np.ndarray, **kwargs):  # pylint: disable=unused-argument
-        if isinstance(img, np.ndarray):
-            if img.ndim == 2:
-                img = img[:, :, None]
-            img = torch.from_numpy(img.transpose(2, 0, 1))
-            # img = torch.from_numpy(img)
-            if isinstance(img, torch.ByteTensor):
-                img = img.float().div(255)
-        return torch.ceil(img * 2)
+        if img.ndim == 2:
+            img = img[:, :, None]
+        if np.isin(np.unique(img), [0., 127., 255.]).all():
+            img = img / 255.
+            return np.ceil(img * 2)
+        else:
+            return img
 
     def get_transform_init_args_names(self):
         return []
@@ -47,14 +49,25 @@ class MaskedBernoulliNoise(ImageOnlyTransform):
         self.bernoulli = Bernoulli(probs=noise)
 
     def apply(self, x: torch.Tensor, **kwargs):  # pylint: disable=unused-argument
+        if not torch.is_tensor(x):
+            x = torch.from_numpy(x)
         assert x.ndim == 3
         m = self.bernoulli.sample(x.size()).to(x.device)
         m = m * x.gt(0).float()
         noise_value = 1 + torch.randint_like(x, self.min_, self.max_ + 1).to(x.device)  # 1 or 2
-        return x * (1 - m) + noise_value * m
+        return (x * (1 - m) + noise_value * m).detach().numpy()
 
     def get_params(self):
         return {'noise': self.noise}
+
+    @property
+    def targets(self) -> Dict[str, Callable]:
+        return {"image": self.apply}
+
+    def get_transform_init_args_names(self):
+        return []
+    def get_params_dependent_on_targets(self, params):
+        return {}
 
 
 class WM811KTransform(object):
@@ -129,7 +142,7 @@ class WM811KTransform(object):
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
             A.RandomCrop(height=size[0], width=size[1], p=1.0),
-            ToWBM(),
+            ToWBM()
         ]
         return transform
 
@@ -379,22 +392,24 @@ class WM811KTransformMultiple(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
                  args,
+                 **kwargs
                  ):
         _transforms = []
         size = (args.size_xy, args.size_xy)
         resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST)
         _transforms.append(resize_transform)
+
         modes = []
-        magnitudes =[]
+        magnitudes = []
 
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
             magnitude = random.rand()
+            # mode = 'cutout'
+            # magnitude = 0.1
             modes.append(mode)
             magnitudes.append(magnitude)
-            # args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
-            if mode == 'noise':
-                continue
+            args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
             if mode == 'crop':
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
@@ -405,21 +420,11 @@ class WM811KTransformMultiple(object):
                     # interpolation	OpenCV flag : flag that is used to specify the interpolation algorithm. Should be one of: cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4. Default: cv2.INTER_LINEAR.
                     # p	float : probability of applying the transform. Default: 1.
                 _transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
-            elif mode == 'cutout':
-                num_holes: int = 1  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
-                range_magnitude = (0.0, 0.5)
-                final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
-                cut_h = int(size[0] * final_magnitude)
-                cut_w = int(size[1] * final_magnitude)
-                if args.keep:
-                    _transforms.append(
-                        A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5)
-                    )
-                else:
-                    _transforms.append(
-                        KeepCutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=0.5)
-                    )
-
+            elif mode == 'cutout' and not args.keep:
+                num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
+                _transforms.append(
+                    A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                )
             elif mode == 'rotate':
                 range_magnitude = (0, 360)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
@@ -436,18 +441,30 @@ class WM811KTransformMultiple(object):
                 value=0,
                 p=1.0
             ),)
-            elif mode == 'test':
-                pass
 
-        _transforms.append(A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST))
-        _transforms.append(ToWBM())
+        for i in range(len(magnitudes)):
+            mode, magnitude = modes[i], magnitudes[i]
+            if mode == 'cutout':
+                num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
+                _transforms.append(ToWBM())
+                if args.keep:
+                    _transforms.append(
+                        KeepCutout(args=args, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                    )
+                else:
+                    _transforms.append(
+                        A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                    )
 
         for i in range(len(magnitudes)):
             mode, magnitude = modes[i], magnitudes[i]
             if mode == 'noise':
                 range_magnitude = (0., 0.20)
-                final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
+                final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
+                _transforms.append(ToWBM())
                 _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
+
+        _transforms.append(ToWBM())
 
         self.transform = A.Compose(_transforms)
 
@@ -502,13 +519,13 @@ class TransformFixMatchWafer(object):
 
     def __call__(self, x):
         weak = self.weak(image=x)['image']
-        strong = self.basic(image=x)
+        basic = self.basic(image=x)
         strong_trans = WM811KTransformMultiple(self.args)
-        strong = strong_trans(strong['image'])
+        strong = strong_trans(basic['image'])
         return weak, strong
 
 
-class KeepCutout(ImageOnlyTransform):
+class KeepCutout(DualTransform):
     def __init__(self,
                  args,
                  num_holes: int = 8,
@@ -524,11 +541,25 @@ class KeepCutout(ImageOnlyTransform):
         self.fill_value = fill_value
         self.args = args
 
+    # 이 augmentation의 경우에는 데이터가 이미 0,1,2로 처리된 데이터를 학습을 하므로 여러개의 augmetantion을 취할 경우,
+    # 현재 적용중인 'crop', 'cutout', 'noise', 'rotate', 'shift'  augmentation을 
+    # 아래의 순서대로 정렬해서 조합한다. crop /  rotate / shift가 처리가 된 이후,
+    # noise -> cutout 되도록
     def apply(self, img, **params):
         for param in self.args.supervised_model.parameters():
             param.requires_grad = False
         self.args.supervised_model.eval()
-        images_ = img.clone().detach()
+
+        img_origin = np.copy(img)
+        img = torch.from_numpy(img)
+
+        if img.ndim == 3:
+            img = torch.unsqueeze(img, dim=0)
+        assert img.size()[0] == 1
+
+        images_ = F.one_hot(img.long(), num_classes=3).squeeze().float().unsqueeze(0)
+        images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
+
         images_.requires_grad = True
         preds = self.args.supervised_model(images_)
         score, _ = torch.max(preds, 1)
@@ -540,25 +571,29 @@ class KeepCutout(ImageOnlyTransform):
         slc_ /= slc_.max(1, keepdim=True)[0]
         slc_ = slc_.view(b, h, w)
 
+        mask = np.ones((h, w), np.float32)
         for i, (img, slc) in enumerate(zip(images_, slc_)):
-            mask = np.ones((h, w), np.float32)
             while (True):
-                y = np.random.randint(h)
-                x = np.random.randint(w)
-                y1 = np.clip(y - self.length // 2, 0, h)
-                y2 = np.clip(y + self.length // 2, 0, h)
-                x1 = np.clip(x - self.length // 2, 0, w)
-                x2 = np.clip(x + self.length // 2, 0, w)
-                if slc[y1: y2, x1: x2].mean() < 0.6:
+                y = self.max_h_size//2 + np.random.randint(h - self.max_h_size//2)
+                x = self.max_h_size//2 + np.random.randint(w - self.max_h_size//2)
+                y1 = np.clip(y - self.max_h_size // 2, 0, h)
+                y2 = np.clip(y + self.max_h_size // 2, 0, h)
+                x1 = np.clip(x - self.max_h_size // 2, 0, w)
+                x2 = np.clip(x + self.max_h_size // 2, 0, w)
+                # print(self.max_h_size, x, y, slc[y1: y2, x1: x2].size(),  slc[y1: y2, x1: x2].mean())
+                if slc[y1: y2, x1: x2].mean() < self.args.tau:
                     mask[y1: y2, x1: x2] = 0.
                     break
-            mask = torch.from_numpy(mask)
-            mask = mask.expand_as(img).cuda()
-            img = img * mask
+                # print('retrying...')
+        origin_img = img_origin * np.expand_dims(mask, axis=-1)
+        return origin_img
 
-        return img
+    @property
+    def targets(self) -> Dict[str, Callable]:
+        return {"image": self.apply}
 
+    def get_transform_init_args_names(self):
+        return []
 
-
-
-
+    def get_params_dependent_on_targets(self, params):
+        return {}

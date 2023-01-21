@@ -163,13 +163,11 @@ class WM811K(Dataset):
     def get_labels(self):
         return self.targets
 
-
     def __getitem__(self, idx):
         path, y = self.samples[idx]
         x = self.load_image_cv2(path)
         if self.transform is not None:
             x = self.transform(x)
-
         if self.args.decouple_input:
             x = self.decouple_mask(x)
 

@@ -96,6 +96,7 @@ def get_args():
     parser.add_argument('--nesterov', action='store_true', default=True, help='use nesterov momentum')
     parser.add_argument('--use-ema', action='store_true', default=True, help='use EMA model')
     parser.add_argument('--ema-decay', default=0.999, type=float, help='EMA decay rate')
+    parser.add_argument('--tau', default=0.3, type=float, help='tau')
 
     # fixmatch
     parser.add_argument('--mu', default=7, type=int, help='coefficient of unlabeled batch size') # todo : default 7
