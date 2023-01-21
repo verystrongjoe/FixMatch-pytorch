@@ -409,7 +409,7 @@ class WM811KTransformMultiple(object):
             # magnitude = 0.1
             modes.append(mode)
             magnitudes.append(magnitude)
-            args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
+            # args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
             if mode == 'crop':
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]

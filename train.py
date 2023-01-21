@@ -41,7 +41,7 @@ def prerequisite(args):
 
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}"
+    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_keep_{args.keep}"
     device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
