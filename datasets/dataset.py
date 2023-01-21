@@ -163,13 +163,11 @@ class WM811K(Dataset):
     def get_labels(self):
         return self.targets
 
-
     def __getitem__(self, idx):
         path, y = self.samples[idx]
         x = self.load_image_cv2(path)
         if self.transform is not None:
             x = self.transform(x)
-
         if self.args.decouple_input:
             x = self.decouple_mask(x)
 
@@ -260,7 +258,6 @@ def get_wm811k(args, root):
         'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
         'args': args,
     }
-
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811K('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
     valid_dataset = WM811K('./data/wm811k/labeled/valid/', **test_data_kwargs)  # it is same as test dataset.

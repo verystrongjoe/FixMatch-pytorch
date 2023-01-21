@@ -4,34 +4,35 @@ import os
 
 # os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+# os.environ['WANDB_SILENT']="true"
 
 import time
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import torchmetrics
+import wandb
+from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+
 from datasets.dataset import DATASET_GETTERS
-from utils import AverageMeter, accuracy
-from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, get_cosine_schedule_with_warmup
-import wandb
-from datasets.loaders import balanced_loader
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
-from torchsampler import ImbalancedDatasetSampler
-from datetime import datetime
-import torchmetrics
 from datasets.dataset import WM811K
+from datasets.loaders import balanced_loader
+from utils import AverageMeter, accuracy
+from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
+    get_cosine_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
 
 
 def prerequisite(args):
+    args.logger = logger
+
     if not args.wandb:
-        # os.environ['WANDB_SILENT']="true"
         wandb_mode = 'disabled'
         args.logger.info('wandb disabled.')
     else:
@@ -40,12 +41,11 @@ def prerequisite(args):
 
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}"
+    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_keep_{args.keep}"
     device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
     args.device = device
-    args.logger = logger
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
 
@@ -69,15 +69,12 @@ def prerequisite(args):
         raise ValueError('unknown dataset')
 
 
-
 def main():
     # fix init params and args
     global best_f1
     args = get_args()
     prerequisite(args)
-
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-
     labeled_trainloader = balanced_loader(labeled_dataset,
                                           batch_size=args.batch_size,
                                           num_workers=args.num_workers,
@@ -206,6 +203,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             batch_size = inputs_x.shape[0]
             inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.device)
             targets_x = targets_x.to(args.device)
+
+            F.one_hot(inputs_u_s.long(), num_classes=3).squeeze().float()
+
+            # make 3 channels
+            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
+            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
+
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
             logits_x = logits[:batch_size]
@@ -283,7 +287,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             wandb.run.summary["test_best_loss"] = test_loss  
             wandb.run.summary["test_best_auprc"] = test_auprc  
             wandb.run.summary["test_best_f1"] = test_f1  
-            
 
         model_to_save = model.module if hasattr(model, "module") else model
         if args.use_ema:
@@ -330,6 +333,11 @@ def test(args, loader, model, epoch):
 
             inputs = inputs.to(args.device)
             targets = targets.to(args.device)
+
+            # make 3 channels
+            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
+            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
+
             outputs = model(inputs)
 
             total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
