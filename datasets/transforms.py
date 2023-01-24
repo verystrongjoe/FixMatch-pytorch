@@ -402,6 +402,42 @@ class WM811KTransformMultiple(object):
         modes = []
         magnitudes = []
 
+        # generate modes and magnitudes
+        logs = ""
+        for i in range(args.n_weaks_combinations):
+            mode = random.choice(args.aug_types)
+            magnitude = random.rand()
+            modes.append(mode)
+            magnitudes.append(magnitude)
+            if i == 0:
+                logs += f"{args.n_weaks_combinations} Strong Augmentations : ["
+            logs += f"{mode}({magnitude}), "
+        args.logger.info(logs+"]")
+
+        # keep-cutout  or cutout
+        for i in range(len(magnitudes)):
+            mode, magnitude = modes[i], magnitudes[i]
+            num_holes: int = int(5 * magnitude)
+            if mode == 'cutout':
+                _transforms.append(ToWBM())
+                if args.keep:
+                    _transforms.append(
+                        KeepCutout(args=args, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                    )
+                else:
+                    _transforms.append(
+                        A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                    )
+        # noise
+        for i in range(len(magnitudes)):
+            mode, magnitude = modes[i], magnitudes[i]
+            if mode == 'noise':
+                range_magnitude = (0., 0.20)
+                final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
+                _transforms.append(ToWBM())
+                _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
+
+        # crop, rotate, shift
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
             magnitude = random.rand()
@@ -409,7 +445,6 @@ class WM811KTransformMultiple(object):
             # magnitude = 0.1
             modes.append(mode)
             magnitudes.append(magnitude)
-            # args.logger.info(f"[{i}] mode: {mode}, magnitude: {magnitude}")
             if mode == 'crop':
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
@@ -441,31 +476,7 @@ class WM811KTransformMultiple(object):
                 value=0,
                 p=1.0
             ),)
-
-        for i in range(len(magnitudes)):
-            mode, magnitude = modes[i], magnitudes[i]
-            if mode == 'cutout':
-                num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
-                _transforms.append(ToWBM())
-                if args.keep:
-                    _transforms.append(
-                        KeepCutout(args=args, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
-                    )
-                else:
-                    _transforms.append(
-                        A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
-                    )
-
-        for i in range(len(magnitudes)):
-            mode, magnitude = modes[i], magnitudes[i]
-            if mode == 'noise':
-                range_magnitude = (0., 0.20)
-                final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
-                _transforms.append(ToWBM())
-                _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
-
         _transforms.append(ToWBM())
-
         self.transform = A.Compose(_transforms)
 
     def __call__(self, img):
