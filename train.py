@@ -25,6 +25,9 @@ from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
 
+import multiprocessing
+
+
 logger = logging.getLogger(__name__)
 best_f1 = 0
 
@@ -158,8 +161,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
     global best_f1
     end = time.time()
 
+    if args.num_workers > 1:
+        multiprocessing.set_start_method('spawn')
+        print("multiprocessing.set_start_method('spawn')")
+
     if args.n_gpu > 1:
-        torch.multiprocessing.set_start_method('spawn')  # todo : check this.
+        torch.multiprocessing.set_start_method('spawn')
+        print("torch.multiprocessing.set_start_method('spawn')")
 
     if args.world_size > 1:
         labeled_epoch = 0
