@@ -9,7 +9,6 @@ import os
 import time
 import numpy as np
 import torch
-torch.multiprocessing.set_start_method('spawn')
 
 import torch.nn.functional as F
 import torch.optim as optim
@@ -26,9 +25,6 @@ from datasets.loaders import balanced_loader
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
-
-import multiprocessing
-multiprocessing.set_start_method('spawn')
 
 
 logger = logging.getLogger(__name__)
@@ -409,4 +405,5 @@ def test(args, loader, model, epoch):
 
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method('spawn')
     main()
