@@ -25,7 +25,7 @@ from datasets.loaders import balanced_loader
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
-
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
@@ -76,6 +76,12 @@ def main():
     global best_f1
     args = get_args()
     prerequisite(args)
+
+    if args.num_workers > 1:
+        multiprocessing.set_start_method('spawn')
+    if args.n_gpu > 1:
+        torch.multiprocessing.set_start_method('spawn')
+
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     labeled_trainloader = balanced_loader(labeled_dataset,
                                           batch_size=args.batch_size,
@@ -159,14 +165,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
           model, optimizer, ema_model, scheduler):
     global best_f1
     end = time.time()
-
-    # if args.num_workers > 1:
-    #     multiprocessing.set_start_method('spawn')
-    #     print("multiprocessing.set_start_method('spawn')")
-    #
-    # if args.n_gpu > 1:
-    #     torch.multiprocessing.set_start_method('spawn')
-    #     print("torch.multiprocessing.set_start_method('spawn')")
 
     if args.world_size > 1:
         labeled_epoch = 0
@@ -405,5 +403,4 @@ def test(args, loader, model, epoch):
 
 
 if __name__ == '__main__':
-    torch.multiprocessing.set_start_method('spawn')
     main()
