@@ -101,7 +101,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if NGPU > 1:
         model = torch.nn.DataParallel(model, device_ids=list(range(NGPU)))
-        # torch.multiprocessing.set_start_method('spawn') # todo : check this.
     model.to(device)
     no_decay = ['bias', 'bn']
     grouped_parameters = [
@@ -158,6 +157,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
           model, optimizer, ema_model, scheduler):
     global best_f1
     end = time.time()
+
+    if args.n_gpu > 1:
+        torch.multiprocessing.set_start_method('spawn')  # todo : check this.
 
     if args.world_size > 1:
         labeled_epoch = 0
