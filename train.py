@@ -9,6 +9,8 @@ import os
 import time
 import numpy as np
 import torch
+torch.multiprocessing.set_start_method('spawn')
+
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
@@ -26,6 +28,7 @@ from utils.common import get_args, de_interleave, interleave, save_checkpoint, s
     get_cosine_schedule_with_warmup
 
 import multiprocessing
+multiprocessing.set_start_method('spawn')
 
 
 logger = logging.getLogger(__name__)
@@ -161,13 +164,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
     global best_f1
     end = time.time()
 
-    if args.num_workers > 1:
-        multiprocessing.set_start_method('spawn')
-        print("multiprocessing.set_start_method('spawn')")
-
-    if args.n_gpu > 1:
-        torch.multiprocessing.set_start_method('spawn')
-        print("torch.multiprocessing.set_start_method('spawn')")
+    # if args.num_workers > 1:
+    #     multiprocessing.set_start_method('spawn')
+    #     print("multiprocessing.set_start_method('spawn')")
+    #
+    # if args.n_gpu > 1:
+    #     torch.multiprocessing.set_start_method('spawn')
+    #     print("torch.multiprocessing.set_start_method('spawn')")
 
     if args.world_size > 1:
         labeled_epoch = 0
