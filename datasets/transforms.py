@@ -560,7 +560,9 @@ class KeepCutout(DualTransform):
         images_ = F.one_hot(img.long(), num_classes=3).squeeze().float().unsqueeze(0)
         images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
 
+        images_ = images_.to(self.args.device)
         images_.requires_grad = True
+        self.args.supervised_model = self.args.supervised_model.to(self.args.device)
         preds = self.args.supervised_model(images_)
         score, _ = torch.max(preds, 1)
         score.mean().backward()

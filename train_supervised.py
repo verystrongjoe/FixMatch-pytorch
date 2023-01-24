@@ -67,6 +67,7 @@ def prerequisite(args):
 
 
 def main():
+
     # fix init params and args
     global best_f1
     best_f1 = 0
@@ -74,7 +75,6 @@ def main():
     prerequisite(args)
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-
     labeled_trainloader = balanced_loader(labeled_dataset,
                                           batch_size=args.batch_size,
                                           num_workers=args.num_workers,
@@ -96,12 +96,15 @@ def main():
         num_workers=args.num_workers)
 
     model = create_model(args)
-    NGPU = torch.cuda.device_count()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if NGPU > 1:
-        model = torch.nn.DataParallel(model, device_ids=list(range(NGPU)))
+
+    if args.n_gpu > 1:
+        model = torch.nn.DataParallel(model, device_ids=list(range(args.n_gpu)))
         # torch.multiprocessing.set_start_method('spawn') # todo : check this.
+        print(f'{args.n_gpu} GPUs will be used.')
+
     model.to(device)
+
     no_decay = ['bias', 'bn']
     grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(
