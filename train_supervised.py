@@ -50,7 +50,7 @@ def prerequisite(args):
         set_seed(args)
 
     os.makedirs(args.out, exist_ok=True)  # todo : check this
-    args.writer = SummaryWriter(args.out)
+    # args.writer = SummaryWriter(args.out)
 
     if args.dataset == 'wm811k':
         args.num_classes = 8
@@ -264,7 +264,7 @@ def train(args, labeled_trainloader, valid_loader, test_loader,
             'scheduler': scheduler.state_dict(),
         }, is_best, args.out)
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
-        args.writer.close()
+        # args.writer.close()
 
 
 def test(args, loader, model, epoch):
