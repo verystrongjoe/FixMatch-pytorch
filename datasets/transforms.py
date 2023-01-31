@@ -412,7 +412,7 @@ class WM811KTransformMultiple(object):
             if i == 0:
                 logs += f"{args.n_weaks_combinations} Strong Augmentations : ["
             logs += f"{mode}({magnitude}), "
-        args.logger.info(logs+"]")
+        # args.logger.info(logs+"]")
 
         # keep-cutout  or cutout
         for i in range(len(magnitudes)):
@@ -574,6 +574,7 @@ class KeepCutout(DualTransform):
         images_ = images_.to(self.args.device)
         images_.requires_grad = True
         self.args.supervised_model = self.args.supervised_model.to(self.args.device)
+        self.args.supervised_model.eval()  # 고정 안시킴 ㅠㅠ
         preds = self.args.supervised_model(images_)
         score, _ = torch.max(preds, 1)
         score.mean().backward()
