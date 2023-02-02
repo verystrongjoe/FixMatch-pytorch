@@ -136,8 +136,8 @@ class WM811K(Dataset):
         self.transform = transform
         self.args = kwargs.get('args', 0)
 
-        images  = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
-        labels  = [pathlib.PurePath(image).parent.name for image in images]          # Parent directory names are class label strings
+        images = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
+        labels = [pathlib.PurePath(image).parent.name for image in images]          # Parent directory names are class label strings
 
         # remove none!!!
         none_idxes = (np.asarray(labels) == 'none')
@@ -197,6 +197,63 @@ class WM811K(Dataset):
         x = torch.clamp(x - 1, min=0., max=1.)
         return torch.cat([x, m], dim=0)
 
+
+class WM811KSaliency(Dataset):
+    label2idx = {
+        'center': 0,
+        'donut': 1,
+        'edge-loc': 2,
+        'edge-ring': 3,
+        'loc': 4,
+        'random': 5,
+        'scratch': 6,
+        'near-full': 7,
+        'none': 8,
+        '-': 9,
+    }
+
+    idx2label = [k for k in label2idx.keys()]
+    num_classes = len(idx2label) - 1  # exclude unlabeled (-)
+
+    def __init__(self, root, transform=None, **kwargs):
+        super(WM811KSaliency, self).__init__()
+
+        self.root = root
+        self.transform = transform
+        self.args = kwargs.get('args', 0)
+        self.samples = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
+
+    def __getitem__(self, idx):
+        path = self.samples[idx]
+        x = self.load_image_cv2(path)
+        if self.transform is not None:
+            x = self.transform(x)
+        if self.args.decouple_input:
+            x = self.decouple_mask(x)
+        return x, path
+
+    def __len__(self):
+        return len(self.samples)
+
+    def decouple_mask(x: torch.Tensor):
+        """
+        Decouple input with existence mask.
+        Defect bins = 2, Normal bins = 1, Null bins = 0
+        """
+        m = x.gt(0).float()
+        x = torch.clamp(x - 1, min=0., max=1.)
+        return torch.cat([x, m], dim=0)
+
+    @staticmethod
+    def load_image_pil(filepath: str):
+        """Load image with PIL. Use with `torchvision`."""
+        return Image.open(filepath)
+
+    @staticmethod
+    def load_image_cv2(filepath: str):
+        """Load image with cv2. Use with `albumentations`."""
+        out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
+        return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
 
 class CIFAR10SSL(datasets.CIFAR10):
     def __init__(self, root, indexs, train=True,

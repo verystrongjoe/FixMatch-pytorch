@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
+import torch.multiprocessing as mp
 import wandb
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -77,10 +78,8 @@ def main():
     args = get_args()
     prerequisite(args)
 
-    if args.num_workers > 1:
-        multiprocessing.set_start_method('spawn')
     if args.n_gpu > 1:
-        torch.multiprocessing.set_start_method('spawn')
+        mp.set_start_method('spawn')
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     labeled_trainloader = balanced_loader(labeled_dataset,
