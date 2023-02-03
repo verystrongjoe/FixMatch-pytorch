@@ -23,7 +23,6 @@ import wandb
 
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K
-from datasets.loaders import balanced_loader
 from utils import AverageMeter, accuracy
 from utils.common import get_args, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
@@ -32,21 +31,15 @@ best_f1 = 0
 
 
 def prerequisite(args):
-    device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
-    args.device = device
-    args.logger = logger
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S",
                         level=logging.INFO)
-    logger.info(dict(args._get_kwargs()))
 
     if not args.wandb:
         wandb_mode = 'disabled'
-        args.logger.info('wandb disabled.')
     else:
         wandb_mode = 'online'
-        args.logger.info('wandb enabled.')
 
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
@@ -154,12 +147,13 @@ def main_worker(local_rank: int, args: object):
     else:
         raise ValueError("unknown optim")
 
-    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.total_steps)
+    total_steps = len(labeled_trainloader) * args.epochs
+    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, total_steps)
     ema_model = None
 
     if args.use_ema:
         from models.ema import ModelEMA
-        ema_model = ModelEMA(args, model, args.ema_decay)
+        ema_model = ModelEMA(args, model, args.ema_decay, local_rank)
     args.start_epoch = 0
 
     if args.resume:
@@ -181,15 +175,10 @@ def main_worker(local_rank: int, args: object):
     logger.info(f"  Num Epochs = {args.epochs}")
     logger.info(f"  Batch size per GPU = {args.batch_size}")
     logger.info(f"  Total train batch size = {args.batch_size * args.world_size}")
-    logger.info(f"  Total optimization steps = {args.total_steps}")
+    logger.info(f"  Total optimization steps = {total_steps}")
 
     model.zero_grad()
-    train(args, labeled_trainloader, valid_loader, test_loader, model, optimizer, ema_model, scheduler)
 
-
-def train(args, labeled_trainloader, valid_loader, test_loader,
-          model, optimizer, ema_model, scheduler):
-    global best_f1
     end = time.time()
 
     if args.world_size > 1:
@@ -204,9 +193,9 @@ def train(args, labeled_trainloader, valid_loader, test_loader,
         losses = AverageMeter()
 
         if not args.no_progress:
-            p_bar = tqdm(range(args.eval_step))
+            p_bar = tqdm(range(len(labeled_trainloader)))
 
-        for batch_idx in range(args.eval_step):
+        for batch_idx in range(len(labeled_trainloader)):
             try:
                 inputs_x, targets_x = labeled_iter.next()
             except:
@@ -219,8 +208,8 @@ def train(args, labeled_trainloader, valid_loader, test_loader,
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            targets_x = targets_x.to(args.device)
-            inputs_x = inputs_x.to(args.device)
+            targets_x = targets_x.to(local_rank)
+            inputs_x = inputs_x.to(local_rank)
 
             # make 3 channels
             inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
@@ -244,7 +233,7 @@ def train(args, labeled_trainloader, valid_loader, test_loader,
                         epoch=epoch + 1,
                         epochs=args.epochs,
                         batch=batch_idx + 1,
-                        iter=args.eval_step,
+                        iter=len(labeled_trainloader),
                         lr=scheduler.get_last_lr()[0],
                         data=data_time.avg,
                         bt=batch_time.avg,

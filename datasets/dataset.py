@@ -57,7 +57,6 @@ class WM811K(Dataset):
         none_idxes = (np.asarray(labels) == 'none')
         images = np.asarray(images)[~none_idxes]
         labels = np.asarray(labels)[~none_idxes]
-        self.args.logger.info(pd.Series(labels).value_counts())
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
         
         if self.args.proportion != 1.:  
@@ -66,9 +65,6 @@ class WM811K(Dataset):
                 shuffle=True,random_state=1993 + self.args.seed)
             images = X_train
             targets = y_train
-            self.args.logger.info(f'It uses only {len(targets)} samples of train set because args.proportion is {self.args.proportion}')
-        else:
-            self.args.logger.info(f'It uses 100% {len(targets)} samples of train set because args.proportion is 1.')
 
         self.targets = targets
         self.samples = list(zip(images, targets)) # Make (path, target) pairs
@@ -304,8 +300,7 @@ def get_wm811k(args, root):
     return train_labeled_dataset, train_unlabeled_dataset, valid_dataset, test_dataset
 
 
-DATASET_GETTERS = {'cifar10': get_cifar10,
-                   'cifar100': get_cifar100,
+DATASET_GETTERS = {
                    'wm811k': get_wm811k
                    }
 

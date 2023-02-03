@@ -21,7 +21,6 @@ from tqdm import tqdm
 
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K
-from datasets.loaders import balanced_loader
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
@@ -84,6 +83,7 @@ def main():
                                           num_workers=args.num_workers,
                                           pin_memory=True,
                                           drop_last=True)
+
 
     unlabeled_trainloader = DataLoader(
         unlabeled_dataset,
