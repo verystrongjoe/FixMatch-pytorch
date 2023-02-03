@@ -1,3 +1,4 @@
+import numpy
 import torch
 import numpy as np
 from numpy import random
@@ -124,45 +125,44 @@ class WM811KTransformMultiple(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
                  args,
+                 saliency_map,
                  **kwargs
                  ):
-        _transforms = []
         size = (args.size_xy, args.size_xy)
-        resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST)
+        _transforms = []
+        resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST, always_apply=True)
         _transforms.append(resize_transform)
 
-        modes = []
-        magnitudes = []
+        self.modes = []
+        self.magnitudes = []
 
         # generate modes and magnitudes
-        logs = ""
+        logs = f"{args.n_weaks_combinations} Strong Augmentations : ["
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
             magnitude = random.rand()
-            modes.append(mode)
-            magnitudes.append(magnitude)
-            if i == 0:
-                logs += f"{args.n_weaks_combinations} Strong Augmentations : ["
+            self.modes.append(mode)
+            self.magnitudes.append(magnitude)
             logs += f"{mode}({magnitude}), "
         # args.logger.info(logs+"]")
 
         # keep-cutout  or cutout
-        for i in range(len(magnitudes)):
-            mode, magnitude = modes[i], magnitudes[i]
+        for i in range(len(self.magnitudes)):
+            mode, magnitude = self.modes[i], self.magnitudes[i]
             num_holes: int = int(5 * magnitude)
             if mode == 'cutout':
                 _transforms.append(ToWBM())
                 if args.keep:
                     _transforms.append(
-                        KeepCutout(args=args, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                        KeepCutout(args=args, saliency_map=saliency_map, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
                     )
                 else:
                     _transforms.append(
                         A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
                     )
         # noise
-        for i in range(len(magnitudes)):
-            mode, magnitude = modes[i], magnitudes[i]
+        for i in range(len(self.magnitudes)):
+            mode, magnitude = self.modes[i], self.magnitudes[i]
             if mode == 'noise':
                 range_magnitude = (0., 0.20)
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
@@ -171,21 +171,11 @@ class WM811KTransformMultiple(object):
 
         # crop, rotate, shift
         for i in range(args.n_weaks_combinations):
-            mode = random.choice(args.aug_types)
-            magnitude = random.rand()
-            # mode = 'cutout'
-            # magnitude = 0.1
-            modes.append(mode)
-            magnitudes.append(magnitude)
+            mode, magnitude = self.modes[i], self.magnitudes[i]
             if mode == 'crop':
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 ratio = (0.9, 1.1)  # WaPIRL
-                # Torchvision's variant of crop a random part of the input and rescale it to some size.
-                    # scale	[float, float] :  range of size of the origin size cropped
-                    # ratio	[float, float] :  range of aspect ratio of the origin aspect ratio cropped
-                    # interpolation	OpenCV flag : flag that is used to specify the interpolation algorithm. Should be one of: cv2.INTER_NEAREST, cv2.INTER_LINEAR, cv2.INTER_CUBIC, cv2.INTER_AREA, cv2.INTER_LANCZOS4. Default: cv2.INTER_LINEAR.
-                    # p	float : probability of applying the transform. Default: 1.
                 _transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
             elif mode == 'cutout' and not args.keep:
                 num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
@@ -260,10 +250,15 @@ class TransformFixMatchWafer(object):
             args.supervised_model.load_state_dict(checkpoint['state_dict'])
         self.args = args
 
-    def __call__(self, x):
+    def __call__(self, x, saliency_map):
         weak = self.weak(image=x)['image']
         basic = self.basic(image=x)
-        strong_trans = WM811KTransformMultiple(self.args)
+        strong_trans = WM811KTransformMultiple(self.args, saliency_map)
+
+        # todo: delete
+        assert type(basic['image']) == np.ndarray
+        assert basic['image'].shape == (32, 32, 1)
+
         strong = strong_trans(basic['image'])
         return weak, strong
 
@@ -271,6 +266,7 @@ class TransformFixMatchWafer(object):
 class KeepCutout(DualTransform):
     def __init__(self,
                  args,
+                 saliency_map: np.asarray,
                  num_holes: int = 8,
                  max_h_size: int = 8,
                  max_w_size: int = 8,
@@ -283,42 +279,45 @@ class KeepCutout(DualTransform):
         self.max_w_size = max_w_size
         self.fill_value = fill_value
         self.args = args
+        self.saliency_map = saliency_map
 
     # 이 augmentation의 경우에는 데이터가 이미 0,1,2로 처리된 데이터를 학습을 하므로 여러개의 augmetantion을 취할 경우,
     # 현재 적용중인 'crop', 'cutout', 'noise', 'rotate', 'shift'  augmentation을 
     # 아래의 순서대로 정렬해서 조합한다. crop /  rotate / shift가 처리가 된 이후,
     # noise -> cutout 되도록
     def apply(self, img, **params):
-        for param in self.args.supervised_model.parameters():
-            param.requires_grad = False
-        self.args.supervised_model.eval()
 
-        img_origin = np.copy(img)
-        img = torch.from_numpy(img)
+        # for param in self.args.supervised_model.parameters():
+        #     param.requires_grad = False
+        # self.args.supervised_model.eval()
+        #
+        # img_origin = np.copy(img)
 
-        if img.ndim == 3:
-            img = torch.unsqueeze(img, dim=0)
-        assert img.size()[0] == 1
-
-        images_ = F.one_hot(img.long(), num_classes=3).squeeze().float().unsqueeze(0)
-        images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
-        images_ = images_.to(self.args.device)
-        images_.requires_grad = True
-        self.args.supervised_model = self.args.supervised_model.to(self.args.device)
-        self.args.supervised_model.eval()  # 고정 안시킴 ㅠㅠ
-        preds = self.args.supervised_model(images_)
-        score, _ = torch.max(preds, 1)
-        score.mean().backward()
-        slc_, _ = torch.max(torch.abs(images_.grad), dim=1)
+        # if img.ndim == 3:
+        #     img = torch.unsqueeze(img, dim=0)
+        # assert img.size()[0] == 1
+        #
+        # images_ = F.one_hot(img.long(), num_classes=3).squeeze().float().unsqueeze(0)
+        # images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
+        # images_ = images_.to(self.args.device)
+        # images_.requires_grad = True
+        # self.args.supervised_model = self.args.supervised_model.to(self.args.device)
+        # self.args.supervised_model.eval()  # 고정 안시킴 ㅠㅠ
+        # preds = self.args.supervised_model(images_)
+        # score, _ = torch.max(preds, 1)
+        # score.mean().backward()
+        # slc_, _ = torch.max(torch.abs(images_.grad), dim=1)
+        # b, h, w = slc_.shape
+        # slc_ = slc_.view(slc_.size(0), -1)
+        # slc_ -= slc_.min(1, keepdim=True)[0]
+        # slc_ /= slc_.max(1, keepdim=True)[0]
+        # slc_ = slc_.view(b, h, w)
+        slc_ = self.saliency_map
         b, h, w = slc_.shape
-        slc_ = slc_.view(slc_.size(0), -1)
-        slc_ -= slc_.min(1, keepdim=True)[0]
-        slc_ /= slc_.max(1, keepdim=True)[0]
-        slc_ = slc_.view(b, h, w)
 
         mask = np.ones((h, w), np.float32)
-        for i, (img, slc) in enumerate(zip(images_, slc_)):
-            while (True):
+        for i, slc in enumerate(slc_):
+            while True:
                 y = self.max_h_size//2 + np.random.randint(h - self.max_h_size//2)
                 x = self.max_h_size//2 + np.random.randint(w - self.max_h_size//2)
                 y1 = np.clip(y - self.max_h_size // 2, 0, h)
@@ -330,8 +329,8 @@ class KeepCutout(DualTransform):
                     mask[y1: y2, x1: x2] = 0.
                     break
                 # print('retrying...')
-        origin_img = img_origin * np.expand_dims(mask, axis=-1)
-        return origin_img
+        img_keep_cutout = img * np.expand_dims(mask, axis=-1)
+        return img_keep_cutout
 
     @property
     def targets(self) -> Dict[str, Callable]:

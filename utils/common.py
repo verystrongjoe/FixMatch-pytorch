@@ -30,7 +30,8 @@ def set_seed(args):
     torch.manual_seed(args.seed)
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
-
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
 
 def get_cosine_schedule_with_warmup(optimizer,
                                     num_warmup_steps,
@@ -59,8 +60,14 @@ def de_interleave(x, size):
 
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
-    parser.add_argument('--num_gpu', default='0', type=int, help='id(s) for CUDA_VISIBLE_DEVICES')
+    parser.add_argument('--gpus', type=int, nargs='+', required=True, help='')
     parser.add_argument('--num-workers', type=int, default=0, help='number of workers')
+
+    parser.add_argument('--server', type=str, choices=('ukjo-ubuntu', 'ukjo-window', 'richgo90',  'dgx', 'workstation1', 'workstation2'))
+    parser.add_argument('--num_nodes', type=int, default=1, help='')
+    parser.add_argument('--node_rank', type=int, default=0, help='')
+    parser.add_argument('--dist_url', type=str, default='tcp://127.0.0.1:3500', help='')
+    parser.add_argument('--dist_backend', type=str, default='nccl', help='')
 
     # project settings
     parser.add_argument('--project-name', required=True, type=str)
@@ -68,7 +75,6 @@ def get_args():
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=1.)
-    parser.add_argument('--num_labeled', type=int, help='number  of labeled data used', default=4000)
 
     parser.add_argument('--num_channel', type=int, default=2)
     parser.add_argument('--num_classes', type=int, default=8)
@@ -79,14 +85,12 @@ def get_args():
     parser.add_argument('--wandb', action='store_true')
 
     # model
-    # parser.add_argument('--arch', type=str, default='resnet', choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
-    # parser.add_argument('--arch-config', default='18', type=str)
     parser.add_argument('--arch', type=str, default='wideresnet',
                         choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
+    # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment
-    parser.add_argument('--total-steps', default=318*150, type=int, help='number of total steps to run')
-    parser.add_argument('--eval-step', default=318, type=int, help='number of eval steps to run')
+    parser.add_argument('--epochs', default=318*150, type=int, help='number of total steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
     parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
     parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
@@ -116,6 +120,11 @@ def get_args():
     parser.add_argument('--keep', action='store_true', help='keep-cutout or keep-paste')
 
     args = parser.parse_args()
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = ','.join([str(gpu) for gpu in args.gpus])
+    num_gpus_per_node = len(args.gpus)
+    world_size = args.num_nodes * num_gpus_per_node
+
     return args
 
 

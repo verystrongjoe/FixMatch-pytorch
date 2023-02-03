@@ -17,7 +17,6 @@ import torch.multiprocessing as mp
 import wandb
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-# from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from datasets.dataset import DATASET_GETTERS
@@ -26,7 +25,6 @@ from datasets.loaders import balanced_loader
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
-import multiprocessing
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
@@ -56,7 +54,6 @@ def prerequisite(args):
         set_seed(args)
 
     os.makedirs(args.out, exist_ok=True)
-    # args.writer = SummaryWriter(args.out)
 
     if args.dataset == 'wm811k':
         args.num_classes = 8
@@ -73,7 +70,6 @@ def prerequisite(args):
 
 
 def main():
-    # fix init params and args
     global best_f1
     args = get_args()
     prerequisite(args)
@@ -82,13 +78,12 @@ def main():
         mp.set_start_method('spawn')
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
+
     labeled_trainloader = balanced_loader(labeled_dataset,
                                           batch_size=args.batch_size,
                                           num_workers=args.num_workers,
                                           pin_memory=True,
                                           drop_last=True)
-    args.eval_step = int(len(labeled_dataset) / args.batch_size)
-    args.logger.info(f'args.eval_step : {args.eval_step} reset..')
 
     unlabeled_trainloader = DataLoader(
         unlabeled_dataset,
@@ -118,15 +113,13 @@ def main():
     ]
 
     if args.nm_optim == 'sgd':
-        optimizer = optim.SGD(grouped_parameters, lr=args.lr,   # grouped_parameters
-                            momentum=0.9, nesterov=args.nesterov)
+        optimizer = optim.SGD(grouped_parameters, lr=args.lr, momentum=0.9, nesterov=args.nesterov) # grouped_parameters
     elif args.nm_optim == 'adamw':
         optimizer = optim.AdamW(grouped_parameters, lr=args.lr)  # grouped_parameters   
     else:
         raise ValueError("unknown optim")
 
-    args.epochs = math.ceil(args.total_steps / args.eval_step)
-    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.total_steps)
+    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, len())
     ema_model = None
 
     if args.use_ema:
@@ -171,7 +164,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
         labeled_trainloader.sampler.set_epoch(labeled_epoch)
         unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
 
-    labeled_iter = iter(labeled_trainloader)
     unlabeled_iter = iter(unlabeled_trainloader)
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -181,22 +173,14 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
         losses_x = AverageMeter()
         losses_u = AverageMeter()
         mask_probs = AverageMeter()
-        
-        if not args.no_progress:
-            p_bar = tqdm(range(args.eval_step))
-        
-        for batch_idx in range(args.eval_step):
-            try:
-                inputs_x, targets_x = next(labeled_iter)
-                # error occurs ↓
-                # inputs_x, targets_x = next(labeled_iter)
-            except:
-                if args.world_size > 1:
-                    labeled_epoch += 1
-                    labeled_trainloader.sampler.set_epoch(labeled_epoch)
-                labeled_iter = iter(labeled_trainloader)
-                args.logger.info('train labeled dataset iter is reset.')
-                inputs_x, targets_x = next(labeled_iter)
+
+        p_bar = tqdm(range(len(labeled_trainloader)))
+
+        if args.world_size > 1:
+            labeled_epoch += 1
+            labeled_trainloader.sampler.set_epoch(labeled_epoch)
+
+        for batch_idx, (inputs_x, targets_x) in range(labeled_trainloader):
             try:
                 (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
             except:
@@ -206,8 +190,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
                 unlabeled_iter = iter(unlabeled_trainloader)
                 args.logger.info('train unlabeled dataset iter is reset.')
                 (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
-                # error occurs ↓
-                # (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
@@ -219,7 +201,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             # make 3 channels
             inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
             inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
-
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
             logits_x = logits[:batch_size]
@@ -277,8 +258,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
 
         weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")
         strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")
+
         wandb.log({"weak_image": weak_image})
         wandb.log({"strong_image": strong_image})
+
         wandb.log({
             'train/1.train_loss': losses.avg,
             'train/2.train_loss_x': losses_x.avg,
@@ -313,7 +296,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
             'scheduler': scheduler.state_dict(),
         }, is_best, args.out)
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
-        # args.writer.close()
 
 
 def test(args, loader, model, epoch):

@@ -12,6 +12,8 @@ from datasets.dataset import WM811KSaliency
 from datasets.transforms import WM811KTransform
 from utils.common import create_model
 from PIL import Image as im
+from tqdm import tqdm
+
 
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
@@ -96,20 +98,8 @@ def main():
         batch_size=args.batch_size,
         num_workers=args.num_workers)
 
-    saliency_iter = iter(dataset)
-
-    args.eval_step = int(len(dataset) / args.batch_size)
-    args.epochs = math.ceil(args.total_steps / args.eval_step)
-
-    for epoch in range(args.start_epoch, args.epochs):
-        for batch_idx in range(args.eval_step):
-            try:
-                inputs_x, paths_x = saliency_iter.next()
-            except:
-                saliency_iter = iter(loader)
-                args.logger.info('train labeled dataset iter is reset.')
-                inputs_x, paths_x = saliency_iter.next()
-
+    for epoch in tqdm(range(args.start_epoch, args.epochs)):
+        for batch_idx, (inputs_x, paths_x) in loader:
             inputs_x = inputs_x.to(args.device)
 
             # make 3 channels
@@ -128,7 +118,7 @@ def main():
             slc_ = slc_.view(b, h, w)
 
             # (128, 32, 32)
-            for bi in range(args.batch_size):
+            for bi in range(len(slc_)):
                 image = slc_[bi:bi+1, :, :].detach().cpu().numpy()
                 path = paths_x[bi]
 

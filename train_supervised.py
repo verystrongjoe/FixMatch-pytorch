@@ -2,27 +2,34 @@ import logging
 import math
 import os
 import time
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-from datasets.dataset import DATASET_GETTERS
-from utils import AverageMeter, accuracy
-from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
-    get_cosine_schedule_with_warmup
-import wandb
-from datasets.loaders import balanced_loader
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score
-from torchsampler import ImbalancedDatasetSampler
-from datetime import datetime
 import torchmetrics
+import torch.multiprocessing as mp
+import torch.distributed as dist
+
+
+from sklearn.metrics import f1_score
+from torch.utils.data import DataLoader, SequentialSampler
+from datasets.samplers import ImbalancedDatasetSampler
+from tqdm import tqdm
+
+import wandb
+# os.environ['WANDB_SILENT']="true"
+
+
+from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K
+from datasets.loaders import balanced_loader
+from utils import AverageMeter, accuracy
+from utils.common import get_args, save_checkpoint, set_seed, create_model, \
+    get_cosine_schedule_with_warmup
 
 best_f1 = 0
+
 
 def prerequisite(args):
     device = torch.device('cuda', args.num_gpu)
@@ -35,14 +42,13 @@ def prerequisite(args):
     logger.info(dict(args._get_kwargs()))
 
     if not args.wandb:
-        # os.environ['WANDB_SILENT']="true"
         wandb_mode = 'disabled'
         args.logger.info('wandb disabled.')
     else:
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
-        # set wandb
+    # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}"
 
@@ -50,7 +56,6 @@ def prerequisite(args):
         set_seed(args)
 
     os.makedirs(args.out, exist_ok=True)  # todo : check this
-    # args.writer = SummaryWriter(args.out)
 
     if args.dataset == 'wm811k':
         args.num_classes = 8
@@ -67,24 +72,53 @@ def prerequisite(args):
 
 
 def main():
-
     # fix init params and args
     global best_f1
     best_f1 = 0
     args = get_args()
     prerequisite(args)
-    if args.n_gpu > 1:
-        torch.multiprocessing.set_start_method('spawn')  # todo : check this.
+
+    if args.world_size > 1:
+        mp.spawn(
+            main_worker,
+            nprocs=args.num_gpus_per_node,
+            args=(args, )
+        )
+    else:
+        main_worker(0, args)
+
+
+def main_worker(local_rank: int, args: object):
+
+    torch.cuda.set_device(local_rank)
+
+    if args.world_size > 1:
+        dist_rank = args.node_rank * args.num_gpus_per_node + local_rank
+        dist.init_process_group(
+            backend=args.dist_backend,
+            init_method=args.dist_url,  # todo : 파악하기
+            world_size=args.world_size,
+            rank=dist_rank,
+        )
+
+    args.batch_size = args.batch_size // args.world_size
+    args.num_workers = args.num_workers // args.world_size
+
+    if local_rank == 0:
+        logger = logging.getLogger(__name__)
+    else:
+        logger = None
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-    labeled_trainloader = balanced_loader(labeled_dataset,
-                                          batch_size=args.batch_size,
-                                          num_workers=args.num_workers,
-                                          pin_memory=True,
-                                          drop_last=True)
-    args.eval_step = int(len(labeled_dataset) / args.batch_size)
-    args.logger.info(f'args.eval_step : {args.eval_step} reset..')
 
+    # https://discuss.pytorch.org/t/how-to-use-my-own-sampler-when-i-already-use-distributedsampler/62143/20
+    labeled_trainloader = DataLoader(dataset=labeled_dataset,
+                      batch_size=args.batch_size,
+                      sampler=ImbalancedDatasetSampler(labeled_dataset),
+                      num_workers=args.num_workers,
+                      drop_last=True,
+                      pin_memory=True)
+    
     valid_loader = DataLoader(
         valid_dataset,
         sampler=SequentialSampler(valid_dataset),
@@ -98,11 +132,11 @@ def main():
         num_workers=args.num_workers)
 
     model = create_model(args)
+
     if args.n_gpu > 1:
-        model = torch.nn.DataParallel(model, device_ids=list(range(args.n_gpu)))
-        print(f'{args.n_gpu} GPUs will be used.')
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+        model = torch.nn.DataParallel(model, device_ids=[local_rank])
+    else:
+        model.to(local_rank)
 
     no_decay = ['bias', 'bn']
     grouped_parameters = [
@@ -120,7 +154,6 @@ def main():
     else:
         raise ValueError("unknown optim")
 
-    args.epochs = math.ceil(args.total_steps / args.eval_step)
     scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.total_steps)
     ema_model = None
 
@@ -357,5 +390,4 @@ def test(args, loader, model, epoch):
 
 
 if __name__ == '__main__':
-    logger = logging.getLogger(__name__)
     main()
