@@ -45,8 +45,7 @@ def prerequisite(args):
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
-    args.world_size = 1
-    args.n_gpu = torch.cuda.device_count()
+
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
 
@@ -70,13 +69,10 @@ def prerequisite(args):
         raise ValueError('unknown dataset')
 
 
-def main():
+def main(local_rank, args):
     global best_f1
-    args = get_args()
-    prerequisite(args)
-
-    if args.n_gpu > 1:
-        mp.set_start_method('spawn')
+    args.local_rank = 0
+    assert args.local_rank == 0
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     
@@ -110,11 +106,8 @@ def main():
         num_workers=args.num_workers)
 
     model = create_model(args)
-    NGPU = torch.cuda.device_count()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if NGPU > 1:
-        model = torch.nn.DataParallel(model, device_ids=list(range(NGPU)))
-    model.to(device)
+    model.to(args.local_rank)
+
     no_decay = ['bias', 'bn']
     grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(
@@ -157,7 +150,7 @@ def main():
     logger.info(f"  Num Epochs = {args.epochs}")
     logger.info(f"  Batch size per GPU = {args.batch_size}")
     logger.info(f"  Total train batch size = {args.batch_size*args.world_size}")
-    logger.info(f"  Total optimization steps = {args.total_steps}")
+    logger.info(f"  Total optimization steps = {args.epochs  * len(labeled_trainloader)}")
 
     model.zero_grad()
     train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
@@ -185,13 +178,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         losses_u = AverageMeter()
         mask_probs = AverageMeter()
 
-        p_bar = tqdm(range(len(labeled_trainloader)))
+        p_bar = tqdm((labeled_trainloader))
 
         if args.world_size > 1:
             labeled_epoch += 1
             labeled_trainloader.sampler.set_epoch(labeled_epoch)
 
-        for batch_idx, (inputs_x, targets_x) in range(labeled_trainloader):
+        for batch_idx, (inputs_x, targets_x) in enumerate(labeled_trainloader):
             try:
                 (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
             except:
@@ -204,8 +197,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.device)
-            targets_x = targets_x.to(args.device)
+            inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
+            targets_x = targets_x.to(args.local_rank)
 
             F.one_hot(inputs_u_s.long(), num_classes=3).squeeze().float()
 
@@ -242,23 +235,22 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             batch_time.update(time.time() - end)
             end = time.time()
             mask_probs.update(mask.mean().item())
-            if not args.no_progress:
-                p_bar.set_description("Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. Loss_x: {loss_x:.4f}. Loss_u: {loss_u:.4f}. Mask: {mask:.2f}. ".format(
-                    epoch=epoch + 1,
-                    epochs=args.epochs,
-                    batch=batch_idx + 1,
-                    iter=args.eval_step,
-                    lr=scheduler.get_last_lr()[0],
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    loss=losses.avg,
-                    loss_x=losses_x.avg,
-                    loss_u=losses_u.avg,
-                    mask=mask_probs.avg))
-                p_bar.update()
 
-        if not args.no_progress:
-            p_bar.close()
+            p_bar.set_description("Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. Loss_x: {loss_x:.4f}. Loss_u: {loss_u:.4f}. Mask: {mask:.2f}. ".format(
+                epoch=epoch + 1,
+                epochs=args.epochs,
+                batch=batch_idx + 1,
+                iter=len(labeled_trainloader),
+                lr=scheduler.get_last_lr()[0],
+                data=data_time.avg,
+                bt=batch_time.avg,
+                loss=losses.avg,
+                loss_x=losses_x.avg,
+                loss_u=losses_u.avg,
+                mask=mask_probs.avg))
+            p_bar.update()
+
+        p_bar.close()
 
         if args.use_ema:
             test_model = ema_model.ema
@@ -334,8 +326,8 @@ def test(args, loader, model, epoch):
             data_time.update(time.time() - end)
             model.eval()
 
-            inputs = inputs.to(args.device)
-            targets = targets.to(args.device)
+            inputs = inputs.to(args.local_rank)
+            targets = targets.to(args.local_rank)
 
             # make 3 channels
             inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
@@ -349,8 +341,8 @@ def test(args, loader, model, epoch):
             # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
-            auprc = fn_auprc.to(args.device)(outputs, targets)
-            f1 = fn_f1score.to(args.device)(torch.argmax(outputs, dim=1), targets)
+            auprc = fn_auprc.to(args.local_rank)(outputs, targets)
+            f1 = fn_f1score.to(args.local_rank)(torch.argmax(outputs, dim=1), targets)
         
             test_losses.update(loss.item(), inputs.shape[0])
             test_top1.update(prec1.item(), inputs.shape[0])
@@ -399,4 +391,18 @@ def test(args, loader, model, epoch):
 
 
 if __name__ == '__main__':
-    main()
+    args = get_args()
+    prerequisite(args)
+
+    if args.world_size > 1:
+        print(f"Distributed training on {args.world_size} GPUs.")
+        mp.spawn(
+            main,
+            nprocs=args.num_gpus_per_node,
+            args=(args, )
+        )
+    else:
+        print(f"Single GPU training.")
+        main(0, args)  # single machine, single gpu
+
+    
