@@ -52,7 +52,7 @@ def prerequisite(args):
     if args.seed is not None:
         set_seed(args)
 
-    args.out = f"{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
     os.makedirs(args.out, exist_ok=True)
 
     if args.dataset == 'wm811k':
@@ -315,11 +315,10 @@ def test(args, loader, model, epoch):
     data_time = AverageMeter()
     end = time.time()
 
-    if not args.no_progress:
-        loader = tqdm(loader)
-
     total_preds = []
     total_reals = []
+    
+    loader = tqdm(loader)
 
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(loader):
@@ -351,20 +350,18 @@ def test(args, loader, model, epoch):
             test_f1.update(f1.item(), inputs.shape[0])   
             batch_time.update(time.time() - end)
             end = time.time()
-            if not args.no_progress:
-                loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
-                    batch=batch_idx + 1,
-                    iter=len(loader),
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    loss=test_losses.avg,
-                    top1=test_top1.avg,
-                    top3=test_top3.avg,
-                    auprc=test_auprc.avg,
-                    f1=test_f1.avg
-                ))
-        if not args.no_progress:
-            loader.close()
+            loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
+                batch=batch_idx + 1,
+                iter=len(loader),
+                data=data_time.avg,
+                bt=batch_time.avg,
+                loss=test_losses.avg,
+                top1=test_top1.avg,
+                top3=test_top3.avg,
+                auprc=test_auprc.avg,
+                f1=test_f1.avg
+            ))
+        loader.close()
             
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
