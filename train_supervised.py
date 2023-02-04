@@ -26,6 +26,8 @@ from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
 from utils.common import get_args, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
+from datetime import datetime
+
 
 best_f1 = 0
 
@@ -41,14 +43,17 @@ def prerequisite(args):
     else:
         wandb_mode = 'online'
 
+    
+    run_name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}"
+    wandb.run.name = run_name
 
     if args.seed is not None:
         set_seed(args)
 
-    os.makedirs(args.out, exist_ok=True)  # todo : check this
+    args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    os.makedirs(args.out, exist_ok=True)
 
     if args.dataset == 'wm811k':
         args.num_classes = 8
