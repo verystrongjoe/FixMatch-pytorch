@@ -27,6 +27,8 @@ def get_args():
     parser.add_argument('--arch', type=str, default='wideresnet', choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
 
     # experiment
+    parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
+
     parser.add_argument('--total-steps', default=318 * 150, type=int, help='number of total steps to run')
     parser.add_argument('--eval-step', default=318, type=int, help='number of eval steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
@@ -59,6 +61,7 @@ def main():
     args.world_size = 1
     args.device = device
     args.num_classes = 8
+    args.local_rank = 0
 
     assert args.arch in ('wideresnet', 'resnext')
     if args.arch == 'wideresnet':
@@ -73,7 +76,7 @@ def main():
         torch.multiprocessing.set_start_method('spawn')  # todo : 인터넷 조언대로 pytorch.multiprocessing 사용
 
     # todo : 레이블 활용 개수에 따라 분기 처리로 모델 가져 오도록 변경
-    checkpoint = torch.load('results/wm811k-supervised/model_best.pth.tar')
+    checkpoint = torch.load(f'results/wm811k-supervised-{args.proportion}/model_best.pth.tar')
     model = create_model(args)
     if args.use_ema:
         from models.ema import ModelEMA
@@ -98,37 +101,36 @@ def main():
         batch_size=args.batch_size,
         num_workers=args.num_workers)
 
-    for epoch in tqdm(range(args.start_epoch, args.epochs)):
-        for batch_idx, (inputs_x, paths_x) in loader:
-            inputs_x = inputs_x.to(args.device)
+    for batch_idx, (inputs_x, paths_x) in tqdm(enumerate(loader)):
+        inputs_x = inputs_x.to(args.device)
 
-            # make 3 channels
-            images_ = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
-            images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
-            images_ = images_.to(device)
-            images_.requires_grad = True
-            preds = model(images_)  # forward model
-            score, _ = torch.max(preds, 1)
-            score.mean().backward()
-            slc_, _ = torch.max(torch.abs(images_.grad), dim=1)
-            b, h, w = slc_.shape
-            slc_ = slc_.view(slc_.size(0), -1)
-            slc_ -= slc_.min(1, keepdim=True)[0]
-            slc_ /= slc_.max(1, keepdim=True)[0]
-            slc_ = slc_.view(b, h, w)
+        # make 3 channels
+        images_ = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
+        images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
+        images_ = images_.to(device)
+        images_.requires_grad = True
+        preds = model(images_)  # forward model
+        score, _ = torch.max(preds, 1)
+        score.mean().backward()
+        slc_, _ = torch.max(torch.abs(images_.grad), dim=1)
+        b, h, w = slc_.shape
+        slc_ = slc_.view(slc_.size(0), -1)
+        slc_ -= slc_.min(1, keepdim=True)[0]
+        slc_ /= slc_.max(1, keepdim=True)[0]
+        slc_ = slc_.view(b, h, w)
 
-            # (128, 32, 32)
-            for bi in range(len(slc_)):
-                image = slc_[bi:bi+1, :, :].detach().cpu().numpy()
-                path = paths_x[bi]
+        # (128, 32, 32)
+        for bi in range(len(slc_)):
+            image = slc_[bi:bi+1, :, :].detach().cpu().numpy()
+            path = paths_x[bi]
 
-                folder, name = os.path.split(path)
-                postfix = f"_saliency_{str(args.proportion)}"
-                npy_name = name.replace(".png", postfix + ".npy")
-                jpg_name = name.replace(".png", postfix + ".jpg")
+            folder, name = os.path.split(path)
+            postfix = f"_saliency_{str(args.proportion)}"
+            npy_name = name.replace(".png", postfix + ".npy")
+            jpg_name = name.replace(".png", postfix + ".jpg")
 
-                np.save(os.path.join(folder, npy_name), image)
-                im.fromarray((image * 255).astype(np.uint8).squeeze()).save(os.path.join(folder, jpg_name))
+            np.save(os.path.join(folder, npy_name), image)
+            im.fromarray((image * 255).astype(np.uint8).squeeze()).save(os.path.join(folder, jpg_name))
 
 
 if __name__ == '__main__':

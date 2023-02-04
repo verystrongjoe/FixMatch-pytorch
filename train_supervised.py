@@ -13,7 +13,7 @@ import torch.distributed as dist
 
 
 from sklearn.metrics import f1_score
-from torch.utils.data import DataLoader, SequentialSampler
+from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
 from datasets.samplers import ImbalancedDatasetSampler
 from tqdm import tqdm
 
@@ -96,11 +96,12 @@ def main_worker(local_rank: int, args: object):
 
     args.batch_size = args.batch_size // args.world_size
     args.num_workers = args.num_workers // args.world_size
+    args.local_rank = local_rank
 
-    if local_rank == 0:
-        logger = logging.getLogger(__name__)
+    if args.local_rank == 0:
+        args.logger = logging.getLogger(__name__)
     else:
-        logger = None
+        args.logger = None
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
 
@@ -112,6 +113,15 @@ def main_worker(local_rank: int, args: object):
                       drop_last=True,
                       pin_memory=True)
     
+
+    unlabeled_trainloader = DataLoader(
+        unlabeled_dataset,
+        sampler=RandomSampler(unlabeled_dataset),
+        batch_size=args.batch_size*args.mu,
+        num_workers=args.num_workers,
+        drop_last=True)
+
+
     valid_loader = DataLoader(
         valid_dataset,
         sampler=SequentialSampler(valid_dataset),
@@ -127,9 +137,9 @@ def main_worker(local_rank: int, args: object):
     model = create_model(args)
 
     if args.n_gpu > 1:
-        model = torch.nn.DataParallel(model, device_ids=[local_rank])
+        model = torch.nn.DataParallel(model, device_ids=[args.local_rank])
     else:
-        model.to(local_rank)
+        model.to(args.local_rank)
 
     no_decay = ['bias', 'bn']
     grouped_parameters = [
@@ -153,11 +163,11 @@ def main_worker(local_rank: int, args: object):
 
     if args.use_ema:
         from models.ema import ModelEMA
-        ema_model = ModelEMA(args, model, args.ema_decay, local_rank)
+        ema_model = ModelEMA(args, model, args.ema_decay, args.local_rank)
     args.start_epoch = 0
 
     if args.resume:
-        logger.info("==> Resuming from checkpoint..")
+        args.logger.info("==> Resuming from checkpoint..")
         assert os.path.isfile(
             args.resume), "Error: no checkpoint directory found!"
         args.out = os.path.dirname(args.resume)
@@ -170,15 +180,21 @@ def main_worker(local_rank: int, args: object):
         optimizer.load_state_dict(checkpoint['optimizer'])
         scheduler.load_state_dict(checkpoint['scheduler'])
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Task = {args.dataset}@{args.proportion}")
-    logger.info(f"  Num Epochs = {args.epochs}")
-    logger.info(f"  Batch size per GPU = {args.batch_size}")
-    logger.info(f"  Total train batch size = {args.batch_size * args.world_size}")
-    logger.info(f"  Total optimization steps = {total_steps}")
+    args.logger.info("***** Running training *****")
+    args.logger.info(f"  Task = {args.dataset}@{args.proportion}")
+    args.logger.info(f"  Num Epochs = {args.epochs}")
+    args.logger.info(f"  Batch size per GPU = {args.batch_size}")
+    args.logger.info(f"  Total train batch size = {args.batch_size * args.world_size}")
+    args.logger.info(f"  Total optimization steps = {total_steps}")
 
     model.zero_grad()
+    train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
+          model, optimizer, ema_model, scheduler)
 
+
+def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
+          model, optimizer, ema_model, scheduler):
+    global best_f1
     end = time.time()
 
     if args.world_size > 1:
@@ -208,8 +224,8 @@ def main_worker(local_rank: int, args: object):
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            targets_x = targets_x.to(local_rank)
-            inputs_x = inputs_x.to(local_rank)
+            targets_x = targets_x.to(args.local_rank)
+            inputs_x = inputs_x.to(args.local_rank)
 
             # make 3 channels
             inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
@@ -285,8 +301,7 @@ def main_worker(local_rank: int, args: object):
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
         }, is_best, args.out)
-        logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
-        # args.writer.close()
+        args.logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
 
 
 def test(args, loader, model, epoch):
@@ -318,8 +333,8 @@ def test(args, loader, model, epoch):
             inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
             inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
 
-            inputs = inputs.to(args.device)
-            targets = targets.to(args.device)
+            inputs = inputs.to(args.local_rank)
+            targets = targets.to(args.local_rank)
             outputs = model(inputs)
 
             total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
@@ -328,8 +343,8 @@ def test(args, loader, model, epoch):
             # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
-            auprc = fn_auprc.to(args.device)(outputs, targets)
-            f1 = fn_f1score.to(args.device)(torch.argmax(outputs, dim=1), targets)
+            auprc = fn_auprc.to(args.local_rank)(outputs, targets)
+            f1 = fn_f1score.to(args.local_rank)(torch.argmax(outputs, dim=1), targets)
 
             test_losses.update(loss.item(), inputs.shape[0])
             test_top1.update(prec1.item(), inputs.shape[0])
@@ -369,11 +384,11 @@ def test(args, loader, model, epoch):
 
         test_image = wandb.Image(inputs[0], caption="Test image")
         wandb.log({"test image": test_image})
-        logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
-        logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
-        logger.info("auprc: {:.2f}".format(test_auprc.avg))
-        logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
-        logger.info("f1: {:.2f}".format(f1))
+        args.logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
+        args.logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
+        args.logger.info("auprc: {:.2f}".format(test_auprc.avg))
+        args.logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
+        args.logger.info("f1: {:.2f}".format(f1))
 
     return test_losses.avg, test_top1.avg, test_auprc.avg, f1
 

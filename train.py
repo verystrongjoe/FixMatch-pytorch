@@ -24,6 +24,7 @@ from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
+from datetimme import datetime
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
@@ -39,9 +40,10 @@ def prerequisite(args):
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
+    run_name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_keep_{args.keep}"
+    wandb.run.name = run_name
     device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
@@ -52,6 +54,7 @@ def prerequisite(args):
     if args.seed is not None:
         set_seed(args)
 
+    args.out = f"{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
     os.makedirs(args.out, exist_ok=True)
 
     if args.dataset == 'wm811k':

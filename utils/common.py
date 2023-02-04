@@ -90,7 +90,7 @@ def get_args():
     # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment
-    parser.add_argument('--epochs', default=318*150, type=int, help='number of total steps to run')
+    parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
     parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
     parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
@@ -107,11 +107,8 @@ def get_args():
     parser.add_argument('--lambda-u', default=10, type=float, help='coefficient of unlabeled loss')  # todo : default 1
     parser.add_argument('--T', default=1, type=float, help='pseudo label temperature')
     parser.add_argument('--threshold', default=0.7, type=float, help='pseudo label threshold')
-    
-    parser.add_argument('--out', default='result', help='directory to output the result')
     parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
     parser.add_argument('--seed', default=None, type=int, help="random seed")
-    parser.add_argument('--no-progress', action='store_true', help="don't use progress bar")
 
     # augmentations
     parser.add_argument('--n-weaks-combinations', type=int, default=2,
