@@ -17,6 +17,7 @@ import torch.multiprocessing as mp
 import wandb
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from datasets.samplers import ImbalancedDatasetSampler
 from tqdm import tqdm
 
 from datasets.dataset import DATASET_GETTERS
@@ -24,7 +25,7 @@ from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
-from datetimme import datetime
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
@@ -44,10 +45,8 @@ def prerequisite(args):
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
-    device = torch.device('cuda', args.num_gpu)
     args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
-    args.device = device
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
 
@@ -80,20 +79,29 @@ def main():
         mp.set_start_method('spawn')
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-
-    labeled_trainloader = balanced_loader(labeled_dataset,
-                                          batch_size=args.batch_size,
-                                          num_workers=args.num_workers,
-                                          pin_memory=True,
-                                          drop_last=True)
-
-
+    
+    # https://discuss.pytorch.org/t/how-to-use-my-own-sampler-when-i-already-use-distributedsampler/62143/20
+    labeled_trainloader = DataLoader(dataset=labeled_dataset,
+                      batch_size=args.batch_size,
+                      sampler=ImbalancedDatasetSampler(labeled_dataset),
+                      num_workers=args.num_workers,
+                      drop_last=True,
+                      pin_memory=True)
+    
     unlabeled_trainloader = DataLoader(
         unlabeled_dataset,
         sampler=RandomSampler(unlabeled_dataset),
         batch_size=args.batch_size*args.mu,
         num_workers=args.num_workers,
         drop_last=True)
+
+
+    valid_loader = DataLoader(
+        valid_dataset,
+        sampler=SequentialSampler(valid_dataset),
+        batch_size=args.batch_size,
+        num_workers=args.num_workers)
+
 
     test_loader = DataLoader(
         test_dataset,
@@ -122,7 +130,7 @@ def main():
     else:
         raise ValueError("unknown optim")
 
-    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, len())
+    scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.epochs  * len(labeled_trainloader))
     ema_model = None
 
     if args.use_ema:
@@ -152,11 +160,11 @@ def main():
     logger.info(f"  Total optimization steps = {args.total_steps}")
 
     model.zero_grad()
-    train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
+    train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler)
 
 
-def train(args, labeled_trainloader, unlabeled_trainloader, test_loader,
+def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler):
     global best_f1
     end = time.time()

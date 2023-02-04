@@ -121,6 +121,11 @@ def get_args():
     os.environ['CUDA_VISIBLE_DEVICES'] = ','.join([str(gpu) for gpu in args.gpus])
     num_gpus_per_node = len(args.gpus)
     world_size = args.num_nodes * num_gpus_per_node
+    args.world_size = world_size
+    args.num_gpus_per_node = num_gpus_per_node
+    
+    if args.world_size == 1:
+        args.local_rank = 0
 
     return args
 
