@@ -71,7 +71,7 @@ def prerequisite(args):
 
 def main(local_rank, args):
     global best_f1
-    args.local_rank = 0
+    args.local_rank = local_rank
     assert args.local_rank == 0
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
@@ -250,19 +250,18 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 mask=mask_probs.avg))
             p_bar.update()
 
-        p_bar.close()
-
         if args.use_ema:
             test_model = ema_model.ema
         else:
             test_model = model
 
+        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
         test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch)
+ 
+        weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
+        strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
 
-        weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")
-        strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")
-
-        wandb.log({"weak_image": weak_image})
+        wandb.log({"weak_image": weak_image})  
         wandb.log({"strong_image": strong_image})
 
         wandb.log({
@@ -276,14 +275,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'test/4.test_f1': test_f1
             })
 
-        is_best = test_f1 > best_f1
-        best_f1 = max(test_f1, best_f1)
+        is_best = valid_f1 > best_f1
+        best_f1 = max(valid_f1, best_f1)
         if is_best:  # save best f1
             wandb.run.summary["test_best_acc"] = test_acc
             wandb.run.summary["test_best_loss"] = test_loss  
             wandb.run.summary["test_best_auprc"] = test_auprc  
             wandb.run.summary["test_best_f1"] = test_f1  
-
         model_to_save = model.module if hasattr(model, "module") else model
         if args.use_ema:
             ema_to_save = ema_model.ema.module if hasattr(
@@ -325,14 +323,14 @@ def test(args, loader, model, epoch):
             data_time.update(time.time() - end)
             model.eval()
 
-            inputs = inputs.to(args.local_rank)
+            inputs3 = inputs.to(args.local_rank)
             targets = targets.to(args.local_rank)
 
             # make 3 channels
-            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
-            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
+            inputs3 = F.one_hot(inputs3.long(), num_classes=3).squeeze().float()
+            inputs3 = inputs3.permute(0, 3, 1, 2)  # (c, h, w)
 
-            outputs = model(inputs)
+            outputs = model(inputs3)
 
             total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
             total_reals.append(targets.cpu().detach().numpy())
@@ -343,11 +341,11 @@ def test(args, loader, model, epoch):
             auprc = fn_auprc.to(args.local_rank)(outputs, targets)
             f1 = fn_f1score.to(args.local_rank)(torch.argmax(outputs, dim=1), targets)
         
-            test_losses.update(loss.item(), inputs.shape[0])
-            test_top1.update(prec1.item(), inputs.shape[0])
-            test_top3.update(prec3.item(), inputs.shape[0])
-            test_auprc.update(auprc.item(), inputs.shape[0])
-            test_f1.update(f1.item(), inputs.shape[0])   
+            test_losses.update(loss.item(), inputs3.shape[0])
+            test_top1.update(prec1.item(), inputs3.shape[0])
+            test_top3.update(prec3.item(), inputs3.shape[0])
+            test_auprc.update(auprc.item(), inputs3.shape[0])
+            test_f1.update(f1.item(), inputs3.shape[0])   
             batch_time.update(time.time() - end)
             end = time.time()
             loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
@@ -376,7 +374,7 @@ def test(args, loader, model, epoch):
         )
         f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
-        test_image = wandb.Image(inputs[0], caption="Test image")
+        test_image = wandb.Image(inputs[0], caption="Test image")  # 32x32x1 확인
         wandb.log({"test image": test_image})
         logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
         logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
@@ -401,5 +399,3 @@ if __name__ == '__main__':
     else:
         print(f"Single GPU training.")
         main(0, args)  # single machine, single gpu
-
-    
