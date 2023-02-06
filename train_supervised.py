@@ -26,6 +26,8 @@ from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
 from utils.common import get_args, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
+from datetime import datetime
+
 
 best_f1 = 0
 
@@ -41,14 +43,17 @@ def prerequisite(args):
     else:
         wandb_mode = 'online'
 
+    
+    run_name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    wandb.run.name = f"arch_{args.arch}_proportion_{args.proportion}"
+    wandb.run.name = run_name
 
     if args.seed is not None:
         set_seed(args)
 
-    os.makedirs(args.out, exist_ok=True)  # todo : check this
+    args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    os.makedirs(args.out, exist_ok=True)
 
     if args.dataset == 'wm811k':
         args.num_classes = 8
@@ -163,7 +168,7 @@ def main_worker(local_rank: int, args: object):
 
     if args.use_ema:
         from models.ema import ModelEMA
-        ema_model = ModelEMA(args, model, args.ema_decay, args.local_rank)
+        ema_model = ModelEMA(args, model, args.ema_decay)
     args.start_epoch = 0
 
     if args.resume:
@@ -208,8 +213,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         data_time = AverageMeter()
         losses = AverageMeter()
 
-        if not args.no_progress:
-            p_bar = tqdm(range(len(labeled_trainloader)))
+        p_bar = tqdm(range(len(labeled_trainloader)))
 
         for batch_idx in range(len(labeled_trainloader)):
             try:
@@ -243,21 +247,19 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
             batch_time.update(time.time() - end)
             end = time.time()
-            if not args.no_progress:
-                p_bar.set_description(
-                    "Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}".format(
-                        epoch=epoch + 1,
-                        epochs=args.epochs,
-                        batch=batch_idx + 1,
-                        iter=len(labeled_trainloader),
-                        lr=scheduler.get_last_lr()[0],
-                        data=data_time.avg,
-                        bt=batch_time.avg,
-                        loss=losses.avg))
-                p_bar.update()
+            p_bar.set_description(
+                "Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}".format(
+                    epoch=epoch + 1,
+                    epochs=args.epochs,
+                    batch=batch_idx + 1,
+                    iter=len(labeled_trainloader),
+                    lr=scheduler.get_last_lr()[0],
+                    data=data_time.avg,
+                    bt=batch_time.avg,
+                    loss=losses.avg))
+            p_bar.update()
 
-        if not args.no_progress:
-            p_bar.close()
+        p_bar.close()
 
         if args.use_ema:
             test_model = ema_model.ema
@@ -318,8 +320,7 @@ def test(args, loader, model, epoch):
     data_time = AverageMeter()
     end = time.time()
 
-    if not args.no_progress:
-        loader = tqdm(loader)
+    loader = tqdm(loader)
 
     total_preds = []
     total_reals = []
@@ -353,21 +354,19 @@ def test(args, loader, model, epoch):
             test_f1.update(f1.item(), inputs.shape[0])
             batch_time.update(time.time() - end)
             end = time.time()
-            if not args.no_progress:
-                loader.set_description(
-                    "Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
-                        batch=batch_idx + 1,
-                        iter=len(loader),
-                        data=data_time.avg,
-                        bt=batch_time.avg,
-                        loss=test_losses.avg,
-                        top1=test_top1.avg,
-                        top3=test_top3.avg,
-                        auprc=test_auprc.avg,
-                        f1=test_f1.avg
-                    ))
-        if not args.no_progress:
-            loader.close()
+            loader.set_description(
+                "Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
+                    batch=batch_idx + 1,
+                    iter=len(loader),
+                    data=data_time.avg,
+                    bt=batch_time.avg,
+                    loss=test_losses.avg,
+                    top1=test_top1.avg,
+                    top3=test_top3.avg,
+                    auprc=test_auprc.avg,
+                    f1=test_f1.avg
+                ))
+        loader.close()
 
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)
