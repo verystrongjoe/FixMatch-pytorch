@@ -259,8 +259,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch)
 
-        weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")
-        strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")
+        weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
+        strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
         wandb.log({"weak_image": weak_image})
         wandb.log({"strong_image": strong_image})
