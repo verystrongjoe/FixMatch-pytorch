@@ -172,11 +172,11 @@ def build_resnext(cardinality, depth, width, num_classes):
 
 
 
-if __name__ == '__main__':
-    model = build_resnext(cardinality=4, depth=28, width=4, num_classes=9)
-    x = torch.randn(128, 1, 96, 96)
+# if __name__ == '__main__':
+#     model = build_resnext(cardinality=4, depth=28, width=4, num_classes=9)
+#     x = torch.randn(128, 1, 96, 96)
 
-    x = x.to(0)
-    model.to(0)
+#     x = x.to(0)
+#     model.to(0)
 
-    model(x)
+#     model(x)

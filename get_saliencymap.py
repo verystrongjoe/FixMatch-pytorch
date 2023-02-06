@@ -1,7 +1,18 @@
+"""
+CUDA_VISIABLE_DEVICES="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+CUDA_VISIABLE_DEVICES="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+CUDA_VISIABLE_DEVICES="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+CUDA_VISIABLE_DEVICES="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+CUDA_VISIABLE_DEVICES="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+"""
+
 import argparse
 import logging
 import math
 import os
+os.environ["CUDA_VISIBLE_DEVICES"]="MIG-5ceca708-e5aa-5675-b039-37a77bd4b6cf"
+
+
 
 import numpy as np
 import torch
@@ -32,7 +43,7 @@ def get_args():
     parser.add_argument('--total-steps', default=318 * 150, type=int, help='number of total steps to run')
     parser.add_argument('--eval-step', default=318, type=int, help='number of eval steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
-    parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
+    parser.add_argument('--batch-size', default=32, type=int, help='train batchsize')
     parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
 
     parser.add_argument('--lr', '--learning-rate', default=0.04, type=float, help='initial learning rate')
@@ -54,12 +65,7 @@ def get_args():
 
 def main():
     args = get_args()
-    args.n_gpu = torch.cuda.device_count()
-
-    # todo : 멀티 GPU일 경우, device를 멀로 써야 하는건지? 강현구에게 문의
     device = torch.device('cuda', args.num_gpu)
-    args.world_size = 1
-    args.device = device
     args.num_classes = 8
     args.local_rank = 0
 
@@ -72,10 +78,6 @@ def main():
         args.model_depth = 28
         args.model_width = 4
 
-    if args.n_gpu > 1:
-        torch.multiprocessing.set_start_method('spawn')  # todo : 인터넷 조언대로 pytorch.multiprocessing 사용
-
-    # todo : 레이블 활용 개수에 따라 분기 처리로 모델 가져 오도록 변경
     checkpoint = torch.load(f'results/wm811k-supervised-{args.proportion}/model_best.pth.tar')
     model = create_model(args)
     if args.use_ema:
@@ -102,7 +104,7 @@ def main():
         num_workers=args.num_workers)
 
     for batch_idx, (inputs_x, paths_x) in tqdm(enumerate(loader)):
-        inputs_x = inputs_x.to(args.device)
+        inputs_x = inputs_x.to(device)
 
         # make 3 channels
         images_ = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
@@ -117,9 +119,8 @@ def main():
         slc_ = slc_.view(slc_.size(0), -1)
         slc_ -= slc_.min(1, keepdim=True)[0]
         slc_ /= slc_.max(1, keepdim=True)[0]
-        slc_ = slc_.view(b, h, w)
+        slc_ = slc_.view(b, h, w)          # (128, 32, 32)
 
-        # (128, 32, 32)
         for bi in range(len(slc_)):
             image = slc_[bi:bi+1, :, :].detach().cpu().numpy()
             path = paths_x[bi]

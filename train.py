@@ -1,13 +1,15 @@
+import os
+
 import logging
 import math
-import os
+
+import time
+import numpy as np
 
 # os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 # os.environ['WANDB_SILENT']="true"
 
-import time
-import numpy as np
 import torch
 
 import torch.nn.functional as F
@@ -72,7 +74,7 @@ def prerequisite(args):
 def main(local_rank, args):
     global best_f1
     args.local_rank = local_rank
-    assert args.local_rank == 0
+    torch.cuda.set_device(args.local_rank)
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
     
@@ -374,7 +376,7 @@ def test(args, loader, model, epoch):
         )
         f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
-        test_image = wandb.Image(inputs[0], caption="Test image")  # 32x32x1 확인
+        test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
         wandb.log({"test image": test_image})
         logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
         logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
@@ -398,4 +400,6 @@ if __name__ == '__main__':
         )
     else:
         print(f"Single GPU training.")
+        args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
+        print(f"GPU of {args.device_id} Device ID is training...")
         main(0, args)  # single machine, single gpu
