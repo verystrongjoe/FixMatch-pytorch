@@ -43,7 +43,7 @@ def prerequisite(args):
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
-    run_name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}"
+    run_name = f"arch_{args.arch}_prop_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}_l_{args.lambda_u}_op_{args.nm_optim}"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
@@ -257,8 +257,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
-        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch)
+        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch, valid=True)
+        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid=False)
  
         weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
         strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
@@ -274,6 +274,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'train/2.train_loss_x': losses_x.avg,
             'train/3.train_loss_u': losses_u.avg,
             'train/4.mask': mask_probs.avg,
+            'valid/1.test_acc': valid_acc,
+            'valid/2.test_loss': valid_loss,
+            'valid/3.test_auprc': valid_auprc,
+            'valid/4.test_f1': valid_f1,
             'test/1.test_acc': test_acc,
             'test/2.test_loss': test_loss,
             'test/3.test_auprc': test_auprc,
@@ -304,7 +308,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
 
 
-def test(args, loader, model, epoch):
+def test(args, loader, model, epoch, valid=False):
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
 
@@ -353,7 +357,7 @@ def test(args, loader, model, epoch):
             test_f1.update(f1.item(), inputs3.shape[0])   
             batch_time.update(time.time() - end)
             end = time.time()
-            loader.set_description("Test Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
+            loader.set_description({"Valid" if valid else "Test"} + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
                 batch=batch_idx + 1,
                 iter=len(loader),
                 data=data_time.avg,
@@ -369,23 +373,24 @@ def test(args, loader, model, epoch):
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        wandb.log({f"conf_mat_{epoch}" :
-            wandb.plot.confusion_matrix(
-                probs=None,
-                y_true=total_reals, 
-                preds=total_preds,
-                class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-            }
-        )
-        f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
+        if not valid:
+            wandb.log({f"conf_mat_{epoch}" :
+                wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=total_reals, 
+                    preds=total_preds,
+                    class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                }
+            )
+            f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
-        test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
-        wandb.log({"test image": test_image})
-        logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
-        logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
-        logger.info("auprc: {:.2f}".format(test_auprc.avg))
-        logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
-        logger.info("f1: {:.2f}".format(f1))
+            test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
+            wandb.log({"test image": test_image})
+            logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
+            logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
+            logger.info("auprc: {:.2f}".format(test_auprc.avg))
+            logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
+            logger.info("f1: {:.2f}".format(f1))
 
     return test_losses.avg, test_top1.avg, test_auprc.avg, f1
 
