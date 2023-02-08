@@ -357,7 +357,7 @@ def test(args, loader, model, epoch, valid=False):
             test_f1.update(f1.item(), inputs3.shape[0])   
             batch_time.update(time.time() - end)
             end = time.time()
-            loader.set_description({"Valid" if valid else "Test"} + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
+            loader.set_description(f"{'Valid' if valid else 'Test'}" + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
                 batch=batch_idx + 1,
                 iter=len(loader),
                 data=data_time.avg,
