@@ -11,10 +11,8 @@ gpu_3_1="MIG-e46a8085-268f-5417-8e5a-a9e20578424d"
 
 pn=waferfix-all-final-$proportion
 
-
 gpuno1=$gpu_2_1
 gpuno2=$gpu_3_0 
-
 
 for n in 2 
 do 

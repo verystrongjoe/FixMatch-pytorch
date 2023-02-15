@@ -43,7 +43,7 @@ def prerequisite(args):
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
-    run_name = f"arch_{args.arch}_prop_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}_l_{args.lambda_u}_op_{args.nm_optim}"
+    run_name = f"prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_keep_{args.keep}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
