@@ -248,8 +248,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch, valid=True)
-        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid=False, valid_f1)
+        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
+        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
  
         weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
         strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
@@ -299,7 +299,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
 
 
-def test(args, loader, model, epoch, valid=False, valid_f1=None):
+def test(args, loader, model, epoch, valid_f1=None):
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
 
@@ -364,7 +364,7 @@ def test(args, loader, model, epoch, valid=False, valid_f1=None):
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        if not valid and valid_f1 > best_f1:
+        if valid_f1 is not None and valid_f1 > best_f1:
             wandb.log({f"conf_mat_{epoch}" :
                 wandb.plot.confusion_matrix(
                     probs=None,
