@@ -1,8 +1,6 @@
 import os
-
 import logging
 import math
-
 import time
 import numpy as np
 
@@ -11,7 +9,6 @@ import numpy as np
 # os.environ['WANDB_SILENT']="true"
 
 import torch
-
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
@@ -93,13 +90,11 @@ def main(local_rank, args):
         num_workers=args.num_workers,
         drop_last=True)
 
-
     valid_loader = DataLoader(
         valid_dataset,
         sampler=SequentialSampler(valid_dataset),
         batch_size=args.batch_size,
         num_workers=args.num_workers)
-
 
     test_loader = DataLoader(
         test_dataset,
@@ -129,14 +124,14 @@ def main(local_rank, args):
     ema_model = None
 
     if args.use_ema:
+        logger.info('current model changes to ema model..')
         from models.ema import ModelEMA
         ema_model = ModelEMA(args, model, args.ema_decay)
     args.start_epoch = 0
 
     if args.resume:
         logger.info("==> Resuming from checkpoint..")
-        assert os.path.isfile(
-            args.resume), "Error: no checkpoint directory found!"
+        assert os.path.isfile(args.resume), "Error: no checkpoint directory found!"
         args.out = os.path.dirname(args.resume)
         checkpoint = torch.load(args.resume)
         best_f1 = checkpoint['best_f1']
@@ -214,13 +209,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             del logits
             Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean')
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
-
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold를 넘은 값의 logiit
             mask = max_probs.ge(args.threshold).float()
-
-            Lu = (F.cross_entropy(logits_u_s, targets_u,  
-                                  reduction='none') * mask).mean()  # cross entropy from targets_u 
-
+            Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
 
@@ -258,13 +249,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             test_model = model
 
         valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch, valid=True)
-        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid=False)
+        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid=False, valid_f1)
  
         weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
         strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
 
-        weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
-        strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
+        # weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
+        # strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
         wandb.log({"weak_image": weak_image})
         wandb.log({"strong_image": strong_image})
@@ -308,7 +299,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
 
 
-def test(args, loader, model, epoch, valid=False):
+def test(args, loader, model, epoch, valid=False, valid_f1=None):
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
 
@@ -373,7 +364,7 @@ def test(args, loader, model, epoch, valid=False):
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        if not valid:
+        if not valid and valid_f1 > best_f1:
             wandb.log({f"conf_mat_{epoch}" :
                 wandb.plot.confusion_matrix(
                     probs=None,
@@ -384,8 +375,9 @@ def test(args, loader, model, epoch, valid=False):
             )
             f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
-            test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
-            wandb.log({"test image": test_image})
+            # test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
+            # wandb.log({"test image": test_image})
+
             logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
             logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
             logger.info("auprc: {:.2f}".format(test_auprc.avg))

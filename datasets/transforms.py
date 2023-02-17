@@ -5,7 +5,7 @@ from numpy import random
 from torchvision import transforms
 from .randaugment import RandAugmentMC
 from albumentations.core.transforms_interface import BasicTransform
-from albumentations.core.transforms_interface import ImageOnlyTransform, DualTransform
+from albumentations.core.transforms_interface import ImageOnlyTransform
 from torch.distributions import Bernoulli
 import albumentations as A
 import cv2
@@ -42,7 +42,7 @@ class ToWBM(ImageOnlyTransform):
 class MaskedBernoulliNoise(ImageOnlyTransform):
     def __init__(self, noise: float, always_apply: bool = False, p: float = 1.0):
         super(MaskedBernoulliNoise, self).__init__(always_apply, p)
-        self.noise = noise
+        self.noise = np.random.choice(list(np.arange(0, noise, 0.01)), 1)[0]
         self.min_ = 0
         self.max_ = 1
         self.bernoulli = Bernoulli(probs=noise)
@@ -183,11 +183,11 @@ class WM811KTransformMultiple(object):
                     A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
                 )
             elif mode == 'rotate':
-                range_magnitude = (0, 360)
-                final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
-                _transforms.append(A.Rotate(limit=final_magnitude, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
+                # range_magnitude = (0, 360)
+                # final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
+                _transforms.append(A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
             elif mode == 'shift':
-                range_magnitude = (0, 0.5)
+                range_magnitude = (0, 0.25)
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
                 _transforms.append(A.ShiftScaleRotate(
                 shift_limit=final_magnitude,
@@ -263,7 +263,7 @@ class TransformFixMatchWafer(object):
         return weak, strong
 
 
-class KeepCutout(DualTransform):
+class KeepCutout(ImageOnlyTransform):
     def __init__(self,
                  args,
                  saliency_map: np.asarray,

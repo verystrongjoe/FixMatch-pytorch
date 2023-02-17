@@ -172,7 +172,6 @@ class WM811KUnlabled(Dataset):
         return torch.cat([x, m], dim=0)
 
 
-
 class WM811KSaliency(Dataset):
     label2idx = {
         'center': 0,
@@ -229,7 +228,6 @@ class WM811KSaliency(Dataset):
         """Load image with cv2. Use with `albumentations`."""
         out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
         return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
-
 
 
 class CIFAR10SSL(datasets.CIFAR10):
