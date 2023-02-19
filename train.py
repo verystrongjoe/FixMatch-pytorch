@@ -40,7 +40,8 @@ def prerequisite(args):
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
-    run_name = f"prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_keep_{args.keep}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
+    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
+    
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
@@ -176,18 +177,11 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         mask_probs = AverageMeter()
 
         p_bar = tqdm((labeled_trainloader))
-
-        if args.world_size > 1:
-            labeled_epoch += 1
-            labeled_trainloader.sampler.set_epoch(labeled_epoch)
-
+       
         for batch_idx, (inputs_x, targets_x) in enumerate(labeled_trainloader):
             try:
                 (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
             except:
-                if args.world_size > 1:
-                    unlabeled_epoch += 1
-                    unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
                 unlabeled_iter = iter(unlabeled_trainloader)
                 args.logger.info('train unlabeled dataset iter is reset.')
                 (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
@@ -250,10 +244,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
         test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
- 
+
+        # black/white image
         # weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
         # strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
 
+        # rgb image
         weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
         strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
