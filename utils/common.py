@@ -127,8 +127,8 @@ def get_args():
     return args
 
 
-def create_model(args):
-    if args.arch == 'wideresnet':
+def create_model(args, keep=False):
+    if args.arch == 'wideresnet' or keep:
         import models.wideresnet as models
         model = models.build_wideresnet(depth=args.model_depth,
                                         widen_factor=args.model_width,

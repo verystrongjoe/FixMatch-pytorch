@@ -246,7 +246,7 @@ class TransformFixMatchWafer(object):
         if args.keep:
             # todo : change specific directory for proportion
             checkpoint = torch.load(f'results/wm811k-supervised-{args.proportion}/model_best.pth.tar')
-            args.supervised_model = create_model(args)
+            args.supervised_model = create_model(args, keep=True)
             args.supervised_model.load_state_dict(checkpoint['state_dict'])
         self.args = args
 
