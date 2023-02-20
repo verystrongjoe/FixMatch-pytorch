@@ -130,11 +130,16 @@ def get_args():
 def create_model(args, keep=False):
     if args.arch == 'wideresnet' or keep:
         import models.wideresnet as models
+        args.model_depth = 28
+        args.model_width = 2
         model = models.build_wideresnet(depth=args.model_depth,
                                         widen_factor=args.model_width,
                                         dropout=0,
                                         num_classes=args.num_classes)
     elif args.arch == 'resnext':
+        args.model_cardinality = 4
+        args.model_depth = 28
+        args.model_width = 4
         import models.resnext as models
         model = models.build_resnext(cardinality=args.model_cardinality,
                                      depth=args.model_depth,
