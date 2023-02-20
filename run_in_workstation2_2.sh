@@ -14,7 +14,7 @@ pn=waferfix-all-final-$proportion
 gpuno1=$gpu_2_1
 gpuno2=$gpu_3_0 
 
-for n in 2 
+for n in 5
 do 
     for th in 0.5 0.7 0.9
     do
