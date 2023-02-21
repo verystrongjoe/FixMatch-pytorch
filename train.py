@@ -244,8 +244,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss
-        , valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
+        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
         test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
 
         # black/white image
