@@ -10,10 +10,11 @@ command:
   - ${interpreter}
   - ${program}
   - "--project-name"
-  - "'waferfix-sweep"
+  - "waferfix-sweep"
   - "--gpus"
   - "0"
   - "--sweep"
+  = "--wandb"
 parameters:
   proportion:
     value: 0.05
