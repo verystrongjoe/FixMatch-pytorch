@@ -388,15 +388,15 @@ if __name__ == '__main__':
     prerequisite(args)
     
     if args.sweep:
-        with open('./config.yaml') as file:
+        with open('./sweep.yaml') as file:
             config = yaml.load(file, Loader=yaml.FullLoader)
             args.proportion = config.proportion
             args.n_weaks_combinations = config.n
-            args.tau = config.t
-            args.threshold = config.th
-            args.lambda_u = config.l
-            args.mu = config.m
-            args.nm_optim = conifg.nm_optim
+            args.tau = config.tau
+            args.threshold = config.thres
+            args.lambda_u = config.lambda
+            args.mu = config.mu
+            args.nm_optim = conifg.optim
             print(f'{config} are replaced into args..')
 
     if args.world_size > 1:
