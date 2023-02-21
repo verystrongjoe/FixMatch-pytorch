@@ -14,7 +14,7 @@ command:
   - "--gpus"
   - "0"
   - "--sweep"
-  = "--wandb"
+  - "--wandb"
 parameters:
   proportion:
     value: 0.05
