@@ -26,6 +26,7 @@ from utils.common import get_args, de_interleave, interleave, save_checkpoint, s
     get_cosine_schedule_with_warmup
 from datetime import datetime
 import yaml
+from argparse import Namespace
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
@@ -391,6 +392,7 @@ if __name__ == '__main__':
     if args.sweep:
         with open('./sweep.yaml') as file:
             config = yaml.load(file, Loader=yaml.FullLoader)
+            config = Namespace(**config)
             args.proportion = config.proportion
             args.n_weaks_combinations = config.n_weaks_combinations
             args.tau = config.tau
