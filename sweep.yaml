@@ -12,7 +12,7 @@ command:
   - "--project-name"
   - "'waferfix-sweep"
   - "--gpus"
-  - 0
+  - "0"
 parameters:
   proportion:
     values: [0.05]
