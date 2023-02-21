@@ -25,6 +25,7 @@ from utils import AverageMeter, accuracy
 from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
 from datetime import datetime
+import yaml
 
 logger = logging.getLogger(__name__)
 best_f1 = 0
