@@ -16,6 +16,8 @@ command:
   - "--sweep"
   - "--wandb"
 parameters:
+  seed:
+    value: 1234
   proportion:
     value: 0.05
   n-weaks-combinations: 
