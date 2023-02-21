@@ -408,7 +408,7 @@ if __name__ == '__main__':
         )
     else:
         print(f"Single GPU training.")
-        if args.sweep:
+        if not args.sweep:
             args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
         else:
             args.device_id = 0 # todo : sweep 환경 설정에 OS 환경 변수 받는 방법이 부재
