@@ -394,7 +394,7 @@ if __name__ == '__main__':
             args.n_weaks_combinations = config.n
             args.tau = config.tau
             args.threshold = config.thres
-            args.lambda_u = config.lambda
+            args.lambda_u = config.lamb
             args.mu = config.mu
             args.nm_optim = conifg.optim
             print(f'{config} are replaced into args..')

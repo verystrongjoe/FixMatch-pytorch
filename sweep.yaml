@@ -16,10 +16,10 @@ parameters:
   thres:
     min: 0.5
     max: 0.95
-  lambda:
+  lamb:
     min: 1
     max: 10
   mu:
     values: [3, 5, 10]
   optim:
-    valeus: ["adamw", "sgd"]
+    values: ["adamw", "sgd"]
