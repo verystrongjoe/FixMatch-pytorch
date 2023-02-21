@@ -13,7 +13,7 @@ command:
   - "'waferfix-sweep"
   - "--gpus"
   - "0"
-  = "--sweep"
+  - "--sweep"
 parameters:
   proportion:
     value: 0.05
