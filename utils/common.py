@@ -107,7 +107,7 @@ def get_args():
     parser.add_argument('--T', default=1, type=float, help='pseudo label temperature')
     parser.add_argument('--threshold', default=0.7, type=float, help='pseudo label threshold')
     parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
-    parser.add_argument('--seed', default=None, type=int, help="random seed")
+    parser.add_argument('--seed', required=True, type=int, help="random seed")
 
     # augmentations
     parser.add_argument('--n-weaks-combinations', type=int, default=2,
