@@ -391,7 +391,7 @@ if __name__ == '__main__':
         with open('./sweep.yaml') as file:
             config = yaml.load(file, Loader=yaml.FullLoader)
             args.proportion = config.proportion
-            args.n_weaks_combinations = config.n
+            args.n_weaks_combinations = config.naug
             args.tau = config.tau
             args.threshold = config.thres
             args.lambda_u = config.lamb
