@@ -392,8 +392,7 @@ if __name__ == '__main__':
     if args.sweep:
         with open('./sweep.yaml') as file:
             config = yaml.load(file, Loader=yaml.FullLoader)
-            
-            wandb.config.update(cfg)
+            wandb.config.update(config)
             
             args.proportion = wandb.config.proportion
             args.n_weaks_combinations = wandb.config.n_weaks_combinations
