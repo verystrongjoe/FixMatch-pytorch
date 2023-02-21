@@ -5,21 +5,26 @@ name: sweep
 metric:
   goal: maximize
   name: test/4.test_f1
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - "--project_name waferfix-sweep"
 parameters:
   proportion:
     values: [0.05]
-  naug: 
+  n-weaks-combinations: 
     values: [2, 3, 4, 5, 6]
   tau:
     min: 0.02
     max: 0.5
-  thres:
+  threshold:
     min: 0.5
     max: 0.95
-  lamb:
+  lambda-u:
     min: 1
     max: 10
   mu:
     values: [3, 5, 10]
-  optim:
+  nm-optim:
     values: ["adamw", "sgd"]

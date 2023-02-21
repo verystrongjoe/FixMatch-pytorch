@@ -68,7 +68,7 @@ def get_args():
     parser.add_argument('--dist_backend', type=str, default='nccl', help='')
 
     # project settings
-    parser.add_argument('--project-name', default='waferfix', type=str)
+    parser.add_argument('--project-name', required=True, type=str)
 
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
