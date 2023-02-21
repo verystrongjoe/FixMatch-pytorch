@@ -400,8 +400,8 @@ if __name__ == '__main__':
             args.threshold = wandb.config.threshold
             args.lambda_u = wandb.config.lambda_u
             args.mu = wandb.config.mu
-            args.nm_optim = wandb.conifg.nm_optim
-            args.seed = wandb.conifg.seed
+            args.nm_optim = wandb.config.nm_optim
+            args.seed = wandb.config.seed
             
             print(f'{config} are replaced into args..')
 
