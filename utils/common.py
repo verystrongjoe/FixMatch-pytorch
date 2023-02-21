@@ -81,6 +81,7 @@ def get_args():
     parser.add_argument("--expand-labels", action="store_true", help="expand labels to fit eval steps")
     parser.add_argument('--decouple_input', action='store_true')
     parser.add_argument('--wandb', action='store_true')
+    parser.add_argument('--sweep', action='store_true')
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',

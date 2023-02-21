@@ -386,6 +386,18 @@ def test(args, loader, model, epoch, valid_f1=None):
 if __name__ == '__main__':
     args = get_args()
     prerequisite(args)
+    
+    if args.sweep:
+        with open('./config.yaml') as file:
+            config = yaml.load(file, Loader=yaml.FullLoader)
+            args.proportion = config.proportion
+            args.n_weaks_combinations = config.n
+            args.tau = config.t
+            args.threshold = config.th
+            args.lambda_u = config.l
+            args.mu = config.m
+            args.nm_optim = conifg.nm_optim
+            print(f'{config} are replaced into args..')
 
     if args.world_size > 1:
         print(f"Distributed training on {args.world_size} GPUs.")
