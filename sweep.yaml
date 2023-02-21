@@ -11,6 +11,8 @@ command:
   - ${program}
   - "--project-name"
   - "'waferfix-sweep"
+  - "--gpus"
+  - 0
 parameters:
   proportion:
     values: [0.05]

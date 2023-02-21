@@ -58,7 +58,7 @@ def de_interleave(x, size):
 
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
-    parser.add_argument('--gpus', type=int, nargs='+', default=0, help='')
+    parser.add_argument('--gpus', type=int, nargs='+', required=True, help='')
     parser.add_argument('--num-workers', type=int, default=0, help='number of workers')
 
     parser.add_argument('--server', type=str, choices=('ukjo-ubuntu', 'ukjo-window', 'richgo90',  'dgx', 'workstation1', 'workstation2'))
