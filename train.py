@@ -387,17 +387,18 @@ if __name__ == '__main__':
     args = get_args()
     prerequisite(args)
     
-    # if args.sweep:
-    #     with open('./sweep.yaml') as file:
-    #         config = yaml.load(file, Loader=yaml.FullLoader)
-    #         args.proportion = config.proportion
-    #         args.n_weaks_combinations = config.n_weaks_combinations
-    #         args.tau = config.tau
-    #         args.threshold = config.threshold
-    #         args.lambda_u = config.lambda_u
-    #         args.mu = config.mu
-    #         args.nm_optim = conifg.nm_optim
-    #         print(f'{config} are replaced into args..')
+    if args.sweep:
+        with open('./sweep.yaml') as file:
+            config = yaml.load(file, Loader=yaml.FullLoader)
+            args.proportion = config.proportion
+            args.n_weaks_combinations = config.n_weaks_combinations
+            args.tau = config.tau
+            args.threshold = config.threshold
+            args.lambda_u = config.lambda_u
+            args.mu = config.mu
+            args.nm_optim = conifg.nm_optim
+            args.seed = conifg.seed
+            print(f'{config} are replaced into args..')
 
     if args.world_size > 1:
         print(f"Distributed training on {args.world_size} GPUs.")
