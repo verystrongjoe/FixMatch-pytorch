@@ -244,7 +244,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
+        valid_loss
+        , valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
         test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
 
         # black/white image
@@ -392,15 +393,18 @@ if __name__ == '__main__':
     if args.sweep:
         with open('./sweep.yaml') as file:
             config = yaml.load(file, Loader=yaml.FullLoader)
-            config = Namespace(**config)
-            args.proportion = config.proportion
-            args.n_weaks_combinations = config.n_weaks_combinations
-            args.tau = config.tau
-            args.threshold = config.threshold
-            args.lambda_u = config.lambda_u
-            args.mu = config.mu
-            args.nm_optim = conifg.nm_optim
-            args.seed = conifg.seed
+            
+            wandb.config.update(cfg)
+            
+            args.proportion = wandb.config.proportion
+            args.n_weaks_combinations = wandb.config.n_weaks_combinations
+            args.tau = wandb.config.tau
+            args.threshold = wandb.config.threshold
+            args.lambda_u = wandb.config.lambda_u
+            args.mu = wandb.config.mu
+            args.nm_optim = wandb.conifg.nm_optim
+            args.seed = wandb.conifg.seed
+            
             print(f'{config} are replaced into args..')
 
     if args.world_size > 1:
