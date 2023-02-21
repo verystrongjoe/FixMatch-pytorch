@@ -9,7 +9,8 @@ command:
   - ${env}
   - ${interpreter}
   - ${program}
-  - "--project-name 'waferfix-sweep'"
+  - "--project-name"
+  - "'waferfix-sweep"
 parameters:
   proportion:
     values: [0.05]
