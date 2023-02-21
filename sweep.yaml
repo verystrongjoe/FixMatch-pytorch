@@ -6,6 +6,7 @@ metric:
   goal: maximize
   name: test/4.test_f1
 command:
+  - "CUDA_VISIBLE_DEVICES=0"
   - ${env}
   - ${interpreter}
   - ${program}
