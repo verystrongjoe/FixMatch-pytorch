@@ -29,8 +29,8 @@ import yaml
 from argparse import Namespace
 
 logger = logging.getLogger(__name__)
-best_f1 = 0
-
+best_valid_f1 = 0
+best_test_f1 = 0
 
 def prerequisite(args):
     args.logger = logger
@@ -410,9 +410,8 @@ def test(args, loader, model, epoch, valid_f1=None):
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        if valid_f1 is not None and valid_f1 > best_f1:
+        if valid_f1 is not None and valid_f1 > best_valid_f1:
             f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
-
             logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
             logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
             logger.info("auprc: {:.2f}".format(test_auprc.avg))
