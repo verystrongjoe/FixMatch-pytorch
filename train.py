@@ -42,11 +42,40 @@ def prerequisite(args):
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
 
-    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
-    
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
+    if args.sweep:
+        try:
+            with open('./sweep.yaml') as file:
+                config = yaml.load(file, Loader=yaml.FullLoader)            
+                wandb.config.update(config)
+                args.proportion = wandb.config.proportion
+                args.n_weaks_combinations = wandb.config.n_weaks_combinations
+                args.tau = wandb.config.tau
+                args.threshold = wandb.config.threshold
+                args.lambda_u = wandb.config.lambda_u
+                args.mu = wandb.config.mu
+                args.nm_optim = wandb.config.nm_optim
+                args.seed = wandb.config.seed
+                args.keep
+        except:
+             args.logger.warn('there is no sweep yaml.')             
+
+    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
     wandb.run.name = run_name
+
+    
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
@@ -72,7 +101,7 @@ def prerequisite(args):
 
 
 def main(local_rank, args):
-    global best_f1
+    global best_valid_f1, best_test_f1
     args.local_rank = local_rank
     torch.cuda.set_device(args.local_rank)
 
@@ -137,7 +166,10 @@ def main(local_rank, args):
         assert os.path.isfile(args.resume), "Error: no checkpoint directory found!"
         args.out = os.path.dirname(args.resume)
         checkpoint = torch.load(args.resume)
-        best_f1 = checkpoint['best_f1']
+        
+        best_valid_f1 = checkpoint['best_valid_f1']
+        best_test_f1 = checkpoint['best_test_f1']
+        
         args.start_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
         if args.use_ema:
@@ -159,7 +191,7 @@ def main(local_rank, args):
 
 def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler):
-    global best_f1
+    global best_valid_f1, best_test_f1
     end = time.time()
 
     if args.world_size > 1:
@@ -244,8 +276,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss, valid_acc, valid_auprc, valid_f1 = test(args, valid_loader, test_model, epoch)
-        test_loss, test_acc, test_auprc, test_f1 = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
+        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = test(args, valid_loader, test_model, epoch)
+        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
 
         # black/white image
         # weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
@@ -273,13 +305,28 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'test/4.test_f1': test_f1
             })
 
-        is_best = valid_f1 > best_f1
-        best_f1 = max(valid_f1, best_f1)
+        is_best = valid_f1 > best_valid_f1
+        best_valid_f1 = max(valid_f1, best_valid_f1)
+        best_test_f1 = max(test_f1, best_test_f1)
+        
+        
         if is_best:  # save best f1
             wandb.run.summary["test_best_acc"] = test_acc
             wandb.run.summary["test_best_loss"] = test_loss  
             wandb.run.summary["test_best_auprc"] = test_auprc  
+            wandb.run.summary["test_best_f1_max"] = best_test_f1
             wandb.run.summary["test_best_f1"] = test_f1  
+            
+            # wandb.log({f"conf_mat_{epoch}" :
+            #     wandb.plot.confusion_matrix(
+            #         probs=None,
+            #         y_true=total_reals,
+            #         preds=total_preds,
+            #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+            #     }
+            # )
+            
+            
         model_to_save = model.module if hasattr(model, "module") else model
         if args.use_ema:
             ema_to_save = ema_model.ema.module if hasattr(
@@ -290,11 +337,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'state_dict': model_to_save.state_dict(),
             'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
             'acc': test_acc,
-            'best_f1': best_f1,
+            'best_valid_f1': best_valid_f1,
+            'best_test_f1': best_test_f1,
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
         }, is_best, args.out)
-        logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
+        logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
 def test(args, loader, model, epoch, valid_f1=None):
@@ -363,18 +411,7 @@ def test(args, loader, model, epoch, valid_f1=None):
         total_reals = np.concatenate(total_reals)   
         
         if valid_f1 is not None and valid_f1 > best_f1:
-            wandb.log({f"conf_mat_{epoch}" :
-                wandb.plot.confusion_matrix(
-                    probs=None,
-                    y_true=total_reals, 
-                    preds=total_preds,
-                    class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                }
-            )
             f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
-
-            # test_image = wandb.Image(inputs3[0], caption="Test image")  # 32x32x1 확인
-            # wandb.log({"test image": test_image})
 
             logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
             logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
@@ -382,28 +419,12 @@ def test(args, loader, model, epoch, valid_f1=None):
             logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
             logger.info("f1: {:.2f}".format(f1))
 
-    return test_losses.avg, test_top1.avg, test_auprc.avg, f1
+    return test_losses.avg, test_top1.avg, test_auprc.avg, f1, total_reals, total_preds 
 
 
 if __name__ == '__main__':
-    args = get_args()
+    args = get_args()    
     prerequisite(args)
-    
-    if args.sweep:
-        with open('./sweep.yaml') as file:
-            config = yaml.load(file, Loader=yaml.FullLoader)
-            wandb.config.update(config)
-            
-            args.proportion = wandb.config.proportion
-            args.n_weaks_combinations = wandb.config.n_weaks_combinations
-            args.tau = wandb.config.tau
-            args.threshold = wandb.config.threshold
-            args.lambda_u = wandb.config.lambda_u
-            args.mu = wandb.config.mu
-            args.nm_optim = wandb.config.nm_optim
-            args.seed = wandb.config.seed
-            
-            print(f'{config} are replaced into args..')
 
     if args.world_size > 1:
         print(f"Distributed training on {args.world_size} GPUs.")
