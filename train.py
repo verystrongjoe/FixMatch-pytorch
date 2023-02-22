@@ -424,19 +424,6 @@ def test(args, loader, model, epoch, valid_f1=None):
 if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
-
-    if args.world_size > 1:
-        print(f"Distributed training on {args.world_size} GPUs.")
-        mp.spawn(
-            main,
-            nprocs=args.num_gpus_per_node,
-            args=(args, )
-        )
-    else:
-        print(f"Single GPU training.")
-        if not args.sweep:
-            args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
-        else:
-            args.device_id = 0 # todo : sweep 환경 설정에 OS 환경 변수 받는 방법이 부재
-        print(f"GPU of {args.device_id} Device ID is training...")
-        main(0, args)  # single machine, single gpu
+\   args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
+    print(f"GPU of {args.device_id} Device ID is training...")
+    main(0, args)  # single machine, single gpu
