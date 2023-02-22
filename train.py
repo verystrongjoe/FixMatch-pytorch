@@ -424,6 +424,6 @@ def test(args, loader, model, epoch, valid_f1=None):
 if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
-\   args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
+    args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
     print(f"GPU of {args.device_id} Device ID is training...")
     main(0, args)  # single machine, single gpu
