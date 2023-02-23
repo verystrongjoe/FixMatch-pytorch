@@ -57,26 +57,13 @@ def prerequisite(args):
                 args.mu = wandb.config.mu
                 args.nm_optim = wandb.config.nm_optim
                 args.seed = wandb.config.seed
-                args.keep
+                args.keep = wandb.config.keep
         except:
              args.logger.warn('there is no sweep yaml.')             
 
     run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
     wandb.run.name = run_name
-
     
-    
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
 
