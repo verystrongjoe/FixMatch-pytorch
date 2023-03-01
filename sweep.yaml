@@ -4,7 +4,7 @@ method: random
 name: sweep
 metric:
   goal: maximize
-  name: test/4.test_f1
+  name: test_best_f1_max
 command:
   - ${env}
   - ${interpreter}
