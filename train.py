@@ -72,7 +72,10 @@ def prerequisite(args):
     os.makedirs(args.out, exist_ok=True)
 
     if args.dataset == 'wm811k':
-        args.num_classes = 8
+        if not args.exclude_none:
+            args.num_classes = 9
+        else:
+            args.num_classes = 8
         assert args.arch in ('wideresnet', 'resnext')
         if args.arch == 'wideresnet':
             args.model_depth = 28
@@ -222,7 +225,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             logits_x = logits[:batch_size]
             logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
             del logits
-            Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean')
+            Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold를 넘은 값의 logiit
             mask = max_probs.ge(args.threshold).float()

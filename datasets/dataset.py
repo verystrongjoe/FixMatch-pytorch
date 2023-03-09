@@ -54,10 +54,18 @@ class WM811K(Dataset):
         labels = [pathlib.PurePath(image).parent.name for image in images]          # Parent directory names are class label strings
 
         # remove none!
-        none_idxes = (np.asarray(labels) == 'none')
-        images = np.asarray(images)[~none_idxes]
-        labels = np.asarray(labels)[~none_idxes]
+        if self.args.exclude_none:
+            none_idxes = (np.asarray(labels) == 'none')
+            images = np.asarray(images)[~none_idxes]
+            labels = np.asarray(labels)[~none_idxes]
+            num_classes = num_classes - 1
+            assert self.args.num_classes == 8
+        else:
+            assert self.args.num_classes == 9
+
+        
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
+        
         
         if self.args.proportion != 1.:  
             X_train, X_test, y_train, y_test = train_test_split(

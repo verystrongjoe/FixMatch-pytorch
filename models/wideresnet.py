@@ -128,9 +128,9 @@ def build_wideresnet(depth, widen_factor, dropout, num_classes):
 
 if __name__ == '__main__':
     model = build_wideresnet(depth=28,
-                                    widen_factor=2,
-                                    dropout=0,
-                                    num_classes=9)
+                                widen_factor=2,
+                                dropout=0,
+                                num_classes=9)
 
     x = torch.randn(128, 2, 96, 96)
 

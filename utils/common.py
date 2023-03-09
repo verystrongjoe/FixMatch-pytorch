@@ -6,7 +6,7 @@ import numpy as np
 from torch.optim.lr_scheduler import LambdaLR
 import math
 import argparse
-#from models.advanced import AdvancedCNN
+from models.advanced import AdvancedCNN
 import logging
 
 import torch
@@ -77,13 +77,14 @@ def get_args():
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=0.05)
 
     parser.add_argument('--num_channel', type=int, default=2)
-    parser.add_argument('--num_classes', type=int, default=8)
+    parser.add_argument('--num_classes', type=int, default=9)
     parser.add_argument('--size-xy', type=int, default=32)
 
     parser.add_argument("--expand-labels", action="store_true", help="expand labels to fit eval steps")
     parser.add_argument('--decouple_input', action='store_true')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--sweep', action='store_true')
+    parser.add_argument('--exclude-none', action='store_true', default=False)
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
@@ -148,6 +149,11 @@ def create_model(args, keep=False):
                                      depth=args.model_depth,
                                      width=args.model_width,
                                      num_classes=args.num_classes)
+    elif args.arch == 'alexnet' or args.arch == 'vggnet' or args.arch == 'vggnet-bn' or args.arch == 'resnet18' or args.arch == 'resnet50':
+        model = AdvancedCNN(args)
+    else:
+        raise ValueError('unknown model')
+
     return model
 
 

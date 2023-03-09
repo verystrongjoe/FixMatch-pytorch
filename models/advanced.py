@@ -10,8 +10,10 @@ from models.vggnet import VggNetBackbone
 
 AVAILABLE_MODELS = {
     'alexnet': (ALEXNET_BACKBONE_CONFIGS, AlexNetBackbone),
-    'vggnet': (VGGNET_BACKBONE_CONFIGS, VggNetBackbone),
-    'resnet': (RESNET_BACKBONE_CONFIGS, ResNetBackbone),
+    'vggnet': (VGGNET_BACKBONE_CONFIGS['16'], VggNetBackbone),
+    'vggnet-bn': (VGGNET_BACKBONE_CONFIGS['16.bn'], VggNetBackbone),
+    'resnet-18': (RESNET_BACKBONE_CONFIGS['18'], ResNetBackbone),
+    'resnet-50': (RESNET_BACKBONE_CONFIGS['50'], ResNetBackbone),
 }
 
 
@@ -20,12 +22,11 @@ class AdvancedCNN:
         self.args = args
         in_channels = int(args.decouple_input) + int(args.num_channel)
         BACKBONE_CONFIGS, Backbone = AVAILABLE_MODELS[args.arch]
-        self.backbone = Backbone(BACKBONE_CONFIGS[args.arch_config], in_channels=in_channels)
+        self.backbone = Backbone(BACKBONE_CONFIGS, in_channels=in_channels)
         self.classifier = LinearClassifier(in_channels=self.backbone.out_channels, num_classes=args.num_classes)
         self.params = [{'params': self.backbone.parameters()}, {'params': self.classifier.parameters()}]
         self.backbone.to(args.num_gpu)
         self.classifier.to(args.num_gpu)
-        self.fn_loss = torch.nn.CrossEntropyLoss()  # 비용 함수에 소프트맥스 함수 포함되어져 있음.
 
     def __call__(self, x: torch.Tensor):
         """Make a prediction provided a batch of samples."""
