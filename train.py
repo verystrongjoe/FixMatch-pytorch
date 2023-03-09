@@ -4,10 +4,6 @@ import math
 import time
 import numpy as np
 
-# os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-# os.environ['WANDB_SILENT']="true"
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -22,8 +18,8 @@ from tqdm import tqdm
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
-from utils.common import get_args, de_interleave, interleave, save_checkpoint, set_seed, create_model, \
-    get_cosine_schedule_with_warmup
+from utils.common import get_args, de_interleave, interleave, save_checkpoint
+from utils.common import set_seed, create_model, get_cosine_schedule_with_warmup
 from datetime import datetime
 import yaml
 from argparse import Namespace
@@ -32,7 +28,10 @@ logger = logging.getLogger(__name__)
 best_valid_f1 = 0
 best_test_f1 = 0
 
+
 def prerequisite(args):
+    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
+    logger.info(dict(args._get_kwargs()))
     args.logger = logger
 
     if not args.wandb:
@@ -45,6 +44,7 @@ def prerequisite(args):
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     if args.sweep:
+        args.logger.info('existing confiuguration will be replaced by sweep yaml.')
         try:
             with open('./sweep.yaml') as file:
                 config = yaml.load(file, Loader=yaml.FullLoader)            
@@ -64,11 +64,9 @@ def prerequisite(args):
     run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
     wandb.run.name = run_name
     
-    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
-    logger.info(dict(args._get_kwargs()))
-
     if args.seed is not None:
         set_seed(args)
+        args.logger.info(f'seed is set to {args.seed}.')
 
     args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
     os.makedirs(args.out, exist_ok=True)
@@ -134,8 +132,10 @@ def main(local_rank, args):
 
     if args.nm_optim == 'sgd':
         optimizer = optim.SGD(grouped_parameters, lr=args.lr, momentum=0.9, nesterov=args.nesterov) # grouped_parameters
+        logger.info(f'sgd set with learning rate {args.lr}')
     elif args.nm_optim == 'adamw':
         optimizer = optim.AdamW(grouped_parameters, lr=args.lr)  # grouped_parameters   
+        logger.info(f'adamw set with learning rate {args.lr}')
     else:
         raise ValueError("unknown optim")
 

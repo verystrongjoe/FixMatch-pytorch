@@ -117,7 +117,6 @@ def main_worker(local_rank: int, args: object):
                       num_workers=args.num_workers,
                       drop_last=True,
                       pin_memory=True)
-    
 
     unlabeled_trainloader = DataLoader(
         unlabeled_dataset,
@@ -125,7 +124,6 @@ def main_worker(local_rank: int, args: object):
         batch_size=args.batch_size*args.mu,
         num_workers=args.num_workers,
         drop_last=True)
-
 
     valid_loader = DataLoader(
         valid_dataset,

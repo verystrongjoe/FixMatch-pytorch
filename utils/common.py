@@ -25,11 +25,13 @@ def save_checkpoint(state, is_best, checkpoint, filename='checkpoint.pth.tar'):
                                                'model_best.pth.tar'))
 
 def set_seed(args):
+    # https://tempdev.tistory.com/28 참고
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)   # 기존에 없었던 것 추가
     torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False  # 기존 True -> False
 
 def get_cosine_schedule_with_warmup(optimizer,
                                     num_warmup_steps,

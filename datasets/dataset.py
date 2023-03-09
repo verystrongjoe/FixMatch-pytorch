@@ -75,10 +75,10 @@ class WM811K(Dataset):
     def __getitem__(self, idx):
         path, y = self.samples[idx]
         x = self.load_image_cv2(path)
-        if self.transform is not None:
-            x = self.transform(x)
         if self.args.decouple_input:
             x = self.decouple_mask(x)
+        if self.transform is not None:
+            x = self.transform(x)
         return x, y
 
     def __len__(self):

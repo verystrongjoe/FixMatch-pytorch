@@ -103,10 +103,12 @@ class WM811KTransform(object):
 
     @staticmethod
     def weak_transform(size: tuple, **kwargs):
+        ratio = (0.9, 1.1)  # WaPIRL
         transform = [
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=size[0], width=size[1], p=1.0),
+            # A.RandomCrop(height=size[0], width=size[1], p=1.0),   
+            A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
             ToWBM()
         ]
         return transform
@@ -176,7 +178,8 @@ class WM811KTransformMultiple(object):
                 range_magnitude = (0.5, 1.0)  # scale
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 ratio = (0.9, 1.1)  # WaPIRL
-                _transforms.append(A.RandomResizedCrop(*size, scale=(0.5, final_magnitude), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
+                _transforms.append(A.RandomResizedCrop(*size, scale=(0.7, 0.9), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
+                
             elif mode == 'cutout' and not args.keep:
                 num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
                 _transforms.append(
@@ -236,6 +239,7 @@ class TransformFixMatchWafer(object):
             A.RandomCrop(height=args.size_xy, width=args.size_xy),  # keep!!
             ToWBM()
         ])
+        
 
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
