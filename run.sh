@@ -6,7 +6,7 @@ arch=resnet18
 pn=waferfix-$arch-lr-$lr-prop-$proportion
 
 
-for n in 3 
+for n in 4 
 do 
     for th in 0.95
     do
