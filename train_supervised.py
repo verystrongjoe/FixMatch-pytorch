@@ -51,13 +51,19 @@ def prerequisite(args):
 
     if args.seed is not None:
         set_seed(args)
-
-    args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    
+    if args.out == '':
+        args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+  
     os.makedirs(args.out, exist_ok=True)
+    print(f'{args.out} directory created.')
 
     if args.dataset == 'wm811k':
-        args.num_classes = 8
-        assert args.arch in ('wideresnet', 'resnext')
+        if not args.exclude_none:
+            args.num_classes = 9
+        else:
+            args.num_classes = 8
+            
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 2
@@ -230,8 +236,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             inputs_x = inputs_x.to(args.local_rank)
 
             # make 3 channels
-            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
-            inputs_x = inputs_x.permute(0, 3, 1, 2)  # (c, h, w)
+            # inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
+            inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
             logits = model(inputs_x)
             loss = F.cross_entropy(logits, targets_x.long(), reduction='mean')
             loss.backward()
@@ -329,8 +335,8 @@ def test(args, loader, model, epoch):
             model.eval()
 
             # make 3 channels
-            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
-            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
+            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze()
+            inputs = inputs.permute(0, 3, 1, 2).float()  # (c, h, w)
 
             inputs = inputs.to(args.local_rank)
             targets = targets.to(args.local_rank)

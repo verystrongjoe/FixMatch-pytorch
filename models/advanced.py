@@ -1,19 +1,21 @@
 import torch
 
-from models.alexnet import AlexNetBackbone
-from models.head import LinearClassifier
+# from models.head import LinearClassifier
 from models.network_configs import ALEXNET_BACKBONE_CONFIGS
 from models.network_configs import RESNET_BACKBONE_CONFIGS
 from models.network_configs import VGGNET_BACKBONE_CONFIGS
 from models.resnet import ResNetBackbone
 from models.vggnet import VggNetBackbone
+from models.alexnet import AlexNetBackbone
+
+
 
 AVAILABLE_MODELS = {
     'alexnet': (ALEXNET_BACKBONE_CONFIGS, AlexNetBackbone),
     'vggnet': (VGGNET_BACKBONE_CONFIGS['16'], VggNetBackbone),
     'vggnet-bn': (VGGNET_BACKBONE_CONFIGS['16.bn'], VggNetBackbone),
-    'resnet-18': (RESNET_BACKBONE_CONFIGS['18'], ResNetBackbone),
-    'resnet-50': (RESNET_BACKBONE_CONFIGS['50'], ResNetBackbone),
+    'resnet18': (RESNET_BACKBONE_CONFIGS['18'], ResNetBackbone),
+    'resnet50': (RESNET_BACKBONE_CONFIGS['50'], ResNetBackbone),
 }
 
 
@@ -25,9 +27,8 @@ class AdvancedCNN:
         self.backbone = Backbone(BACKBONE_CONFIGS, in_channels=in_channels)
         self.classifier = LinearClassifier(in_channels=self.backbone.out_channels, num_classes=args.num_classes)
         self.params = [{'params': self.backbone.parameters()}, {'params': self.classifier.parameters()}]
-        self.backbone.to(args.num_gpu)
-        self.classifier.to(args.num_gpu)
-
+        self.backbone.to(args.local_rank)
+    
     def __call__(self, x: torch.Tensor):
         """Make a prediction provided a batch of samples."""
         return self.classifier(self.backbone(x))
@@ -52,3 +53,8 @@ class AdvancedCNN:
     def load_state_dict(self, ckpt):
         self.backbone.load_state_dict(ckpt['backbone'])
         self.classifier.load_state_dict(ckpt['classifier'])
+    
+    def named_parameters(self):
+        return self.backbone.named_parameters(), self.classifier.named_parameters()
+
+

@@ -5,6 +5,7 @@ import torch
 
 class ModelEMA(object):
     def __init__(self, args, model, decay):
+        
         self.ema = deepcopy(model)
         self.ema.to(args.local_rank)
         self.ema.eval()

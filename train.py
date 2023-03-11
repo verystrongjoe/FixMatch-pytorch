@@ -67,16 +67,19 @@ def prerequisite(args):
     if args.seed is not None:
         set_seed(args)
         args.logger.info(f'seed is set to {args.seed}.')
-
-    args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    
+    if args.out == '':
+        args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    
     os.makedirs(args.out, exist_ok=True)
+    print(f'{args.out} directory created.')
+
 
     if args.dataset == 'wm811k':
         if not args.exclude_none:
             args.num_classes = 9
         else:
             args.num_classes = 8
-        assert args.arch in ('wideresnet', 'resnext')
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 2
@@ -126,6 +129,7 @@ def main(local_rank, args):
     model.to(args.local_rank)
 
     no_decay = ['bias', 'bn']
+    
     grouped_parameters = [
         {'params': [p for n, p in model.named_parameters() if not any(
             nd in n for nd in no_decay)], 'weight_decay': args.wdecay},
@@ -198,7 +202,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         losses = AverageMeter()
         losses_x = AverageMeter()
         losses_u = AverageMeter()
-        mask_probs = AverageMeter()
+        masks = AverageMeter()
+        count = AverageMeter()
 
         p_bar = tqdm((labeled_trainloader))
        
@@ -215,11 +220,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
             targets_x = targets_x.to(args.local_rank)
 
-            F.one_hot(inputs_u_s.long(), num_classes=3).squeeze().float()
-
             # make 3 channels
-            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
-            inputs = inputs.permute(0, 3, 1, 2)  # (c, h, w)
+            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
+            inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+            
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
             logits_x = logits[:batch_size]
@@ -228,7 +232,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold를 넘은 값의 logiit
-            mask = max_probs.ge(args.threshold).float()
+            mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값의 수도 레이블 개수
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
@@ -245,9 +249,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
             batch_time.update(time.time() - end)
             end = time.time()
-            mask_probs.update(mask.mean().item())
+            masks.update(mask.long().sum().item())
+            count.update(inputs_u_w.shape[0])
 
-            p_bar.set_description("Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. Loss_x: {loss_x:.4f}. Loss_u: {loss_u:.4f}. Mask: {mask:.2f}. ".format(
+            p_bar.set_description("Train Epoch: {epoch}/{epochs:4}. Iter: {batch:4}/{iter:4}. LR: {lr:.4f}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. Loss_x: {loss_x:.4f}. Loss_u: {loss_u:.4f}. Mask: {mask:.2f}/{mask_total:.2f}({prop:.2f}). ".format(
                 epoch=epoch + 1,
                 epochs=args.epochs,
                 batch=batch_idx + 1,
@@ -258,7 +263,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 loss=losses.avg,
                 loss_x=losses_x.avg,
                 loss_u=losses_u.avg,
-                mask=mask_probs.avg))
+                mask=masks.sum,
+                mask_total=count.sum,
+                prop=(masks.sum/count.sum)*100
+                )
+            )
+            
             p_bar.update()
 
         if args.use_ema:
@@ -266,8 +276,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         else:
             test_model = model
 
-        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = test(args, valid_loader, test_model, epoch)
-        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = test(args, test_loader, test_model, epoch, valid_f1=valid_f1)
+        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
+        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
 
         # black/white image
         # weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
@@ -284,7 +294,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'train/1.train_loss': losses.avg,
             'train/2.train_loss_x': losses_x.avg,
             'train/3.train_loss_u': losses_u.avg,
-            'train/4.mask': mask_probs.avg,
+            'train/4.mask': masks.sum,
             'valid/1.test_acc': valid_acc,
             'valid/2.test_loss': valid_loss,
             'valid/3.test_auprc': valid_auprc,
@@ -335,15 +345,16 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
-def test(args, loader, model, epoch, valid_f1=None):
+def evaluate(args, loader, model, valid_f1=None):
+
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
 
-    test_losses = AverageMeter()
-    test_top1 = AverageMeter()
-    test_top3 = AverageMeter()
-    test_auprc = AverageMeter()
-    test_f1  = AverageMeter()
+    losses = AverageMeter()
+    top1s = AverageMeter()
+    top3s = AverageMeter()
+    auprcs = AverageMeter()
+    f1s  = AverageMeter()
 
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -353,62 +364,79 @@ def test(args, loader, model, epoch, valid_f1=None):
     total_reals = []
     
     loader = tqdm(loader)
+    model.eval()
 
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(loader):
+            
             data_time.update(time.time() - end)
-            model.eval()
-
+            
             inputs3 = inputs.to(args.local_rank)
             targets = targets.to(args.local_rank)
-
-            # make 3 channels
-            inputs3 = F.one_hot(inputs3.long(), num_classes=3).squeeze().float()
-            inputs3 = inputs3.permute(0, 3, 1, 2)  # (c, h, w)
+            
+            # inputs3 = F.one_hot(inputs3.long(), num_classes=3).squeeze().float()    # make 3 channels
+            inputs3 = inputs3.permute(0, 3, 1, 2).float()  # (b, h, w, c) -> (b, c, h, w)
 
             outputs = model(inputs3)
 
             total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
             total_reals.append(targets.cpu().detach().numpy())
 
-            # item
             loss = F.cross_entropy(outputs, targets)
             prec1, prec3 = accuracy(outputs, targets, topk=(1, 3))
             auprc = fn_auprc.to(args.local_rank)(outputs, targets)
             f1 = fn_f1score.to(args.local_rank)(torch.argmax(outputs, dim=1), targets)
         
-            test_losses.update(loss.item(), inputs3.shape[0])
-            test_top1.update(prec1.item(), inputs3.shape[0])
-            test_top3.update(prec3.item(), inputs3.shape[0])
-            test_auprc.update(auprc.item(), inputs3.shape[0])
-            test_f1.update(f1.item(), inputs3.shape[0])   
+            losses.update(loss.item(), inputs3.shape[0]) 
+            top1s.update(prec1.item(), inputs3.shape[0])
+            top3s.update(prec3.item(), inputs3.shape[0])
+            auprcs.update(auprc.item(), inputs3.shape[0])
+            f1s.update(f1.item(), inputs3.shape[0])   
+            
             batch_time.update(time.time() - end)
             end = time.time()
+            
             loader.set_description(f"{'Valid' if valid_f1 is None else 'Test'}" + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
                 batch=batch_idx + 1,
                 iter=len(loader),
                 data=data_time.avg,
                 bt=batch_time.avg,
-                loss=test_losses.avg,
-                top1=test_top1.avg,
-                top3=test_top3.avg,
-                auprc=test_auprc.avg,
-                f1=test_f1.avg
+                loss=losses.avg,
+                top1=top1s.avg,
+                top3=top3s.avg,
+                auprc=auprcs.avg,
+                f1=f1s.avg
             ))
         loader.close()
             
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        if valid_f1 is not None and valid_f1 > best_valid_f1:
-            f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
-            logger.info("top-1 acc: {:.2f}".format(test_top1.avg))
-            logger.info("top-3 acc: {:.2f}".format(test_top3.avg))
-            logger.info("auprc: {:.2f}".format(test_auprc.avg))
-            logger.info("f1 score (torchmetrics) : {:.2f}".format(test_f1.avg))
-            logger.info("f1: {:.2f}".format(f1))
+        # if valid_f1 is not None and valid_f1 > best_valid_f1:
+        logger.info("top-1 acc: {:.2f}".format(top1s.avg))
+        logger.info("top-3 acc: {:.2f}".format(top3s.avg))
+        logger.info("auprc: {:.2f}".format(auprcs.avg))
+        logger.info("f1 score (torchmetrics) batch avg : {:.2f}".format(f1s.avg))
+        logger.info("f1 score (torchmetrics) total : {:.2f}".format( f1_score(y_true=torch.tensor(total_reals), y_pred=torch.tensor(total_preds), average='macro')) )
+        logger.info("f1: {:.2f}".format(f1_score(y_true=total_reals, y_pred=total_preds, average='macro')))
 
-    return test_losses.avg, test_top1.avg, test_auprc.avg, f1, total_reals, total_preds 
+        """
+        pd.Series(total_reals).value_counts()
+        8    1474
+        3      97
+        2      52
+        0      43
+        4      36
+        6      12
+        5       9
+        1       5
+        7       1
+        
+        pd.Series(total_preds).value_counts()
+        3    1729
+        dtype: int64
+        """
+    return losses.avg, top1s.avg, auprcs.avg, f1s.avg, total_reals, total_preds 
 
 
 if __name__ == '__main__':

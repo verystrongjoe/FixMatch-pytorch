@@ -80,6 +80,8 @@ def main():
 
     checkpoint = torch.load(f'results/wm811k-supervised-{args.proportion}/model_best.pth.tar')
     model = create_model(args)
+    
+    
     if args.use_ema:
         from models.ema import ModelEMA
         ema_model = ModelEMA(args, model, args.ema_decay)

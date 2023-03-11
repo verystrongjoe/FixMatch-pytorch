@@ -2,9 +2,9 @@
 
 import collections
 import torch.nn as nn
-
 from models.base import BackboneBase
 from utils.initialization import initialize_weights
+from layers.core import Flatten
 
 
 def conv3x3(in_channels: int, out_channels: int, stride: int = 1):
@@ -62,7 +62,6 @@ class BasicBlock(nn.Module):
             self.downsample = None
 
     def forward(self, x):
-
         if self.downsample is not None:
             identity = self.downsample(x)
         else:
@@ -101,7 +100,6 @@ class BottleNeck(nn.Module):
             self.downsample = None
 
     def forward(self, x):
-
         if self.downsample is not None:
             identity = self.downsample(x)
         else:
@@ -121,9 +119,11 @@ class ResNetBackbone(BackboneBase):
         'basic': BasicBlock,
         'bottleneck': BottleNeck,
     }
-    def __init__(self, layer_config: dict, in_channels: int = 2):
+    def __init__(self, layer_config: dict, in_channels: int = 2, num_features: int = 9, dropout: float = 0.0):
         super(ResNetBackbone, self).__init__(layer_config, in_channels)
         self.in_channels = in_channels
+        self.num_features = num_features
+        self.dropout = dropout
         self.layer_config = layer_config
         self.first_conv = layer_config.get('first_conv', 7)
         self.width = layer_config.get('width', 1)
@@ -132,15 +132,16 @@ class ResNetBackbone(BackboneBase):
             in_channels=self.in_channels,
             width=self.width,
             first_conv=self.first_conv,
+            num_features=self.num_features,
+            dropout=self.dropout
         )
-
         initialize_weights(self.layers, activation='relu')
 
     def forward(self, x):
         return self.layers(x)
 
     @classmethod
-    def make_layers(cls, layer_cfg: dict, in_channels: int, **kwargs):
+    def make_layers(cls, layer_cfg: dict, in_channels: int, num_features: int,  dropout: float, **kwargs):
 
         out_channels = 64
         layers = nn.Sequential()
@@ -175,6 +176,18 @@ class ResNetBackbone(BackboneBase):
             stride = layer_cfg['strides'][i]
             layers.add_module(f'block{i+1}', Block(in_channels, v, stride=stride, **kwargs))
             in_channels = v * Block.expansion
+
+        # add sequential model in the end
+        layers.add_module('linear', nn.Sequential(
+            collections.OrderedDict(
+                [
+                    ('gap', nn.AdaptiveAvgPool2d(1)),
+                    ('flatten', Flatten()),
+                    ('dropout', nn.Dropout(p=dropout)),
+                    ('linear', nn.Linear(in_channels, num_features))
+                ]
+            )
+        ))
 
         return layers
 

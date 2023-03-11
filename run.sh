@@ -1,9 +1,14 @@
 proportion=0.05
-pn=waferfix-all-final-$proportion
+epoch=500
+lr=0.05
+arch=resnet18
+
+pn=waferfix-$arch-lr-$lr-prop-$proportion
+
 
 for n in 2 
 do 
-    for th in 0.5 0.7 0.9
+    for th in 0.7 0.9
     do
         for l in 1 5 10
         do 

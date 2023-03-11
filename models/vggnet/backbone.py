@@ -5,10 +5,12 @@ import torch.nn as nn
 
 from models.base import BackboneBase
 from utils.initialization import initialize_weights
+from layers.core import Flatten
+import collections
 
 
 class VggNetBackbone(BackboneBase):
-    def __init__(self, layer_config: list, in_channels: int = 2):
+    def __init__(self, layer_config: list, in_channels: int = 2, num_features: int = 9, dropout: float = 0.0):
         """
         Arguments:
             layer_config: list, following rules of VGG.
@@ -19,9 +21,13 @@ class VggNetBackbone(BackboneBase):
 
         self.layer_config = layer_config
         self.in_channels = in_channels
+        self.num_features = num_features
+        self.dropout = dropout
         self.layers = self.make_layers(
             layer_cfg=self.layer_config['channels'],
             in_channels=self.in_channels,
+            num_features=self.num_features,
+            dropout=self.dropout,
             batch_norm=self.layer_config['batch_norm']
         )
 
@@ -31,7 +37,7 @@ class VggNetBackbone(BackboneBase):
         return self.layers(x)
 
     @staticmethod
-    def make_layers(layer_cfg: list, in_channels: int, batch_norm: bool = True):
+    def make_layers(layer_cfg: list, in_channels: int, num_features: int,  dropout: float, batch_norm: bool = True):
         """Expects a list of lists for `cfg`."""
 
         layers = nn.Sequential()
@@ -55,6 +61,18 @@ class VggNetBackbone(BackboneBase):
                     in_channels = v
                     c_idx += 1
             layers.add_module(f'block{i}', block)
+
+        # add sequential model in the end
+        layers.add_module('linear', nn.Sequential(
+            collections.OrderedDict(
+                [
+                    ('gap', nn.AdaptiveAvgPool2d(1)),
+                    ('flatten', Flatten()),
+                    ('dropout', nn.Dropout(p=dropout)),
+                    ('linear', nn.Linear(in_channels, num_features))
+                ]
+            )
+        ))
 
         return layers
 

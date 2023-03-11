@@ -5,16 +5,21 @@ import torch.nn as nn
 
 from models.base import BackboneBase
 from utils.initialization import initialize_weights
+from layers.core import Flatten
 
 
 class AlexNetBackbone(BackboneBase):
-    def __init__(self, layer_config: str, in_channels: int = 2):
+    def __init__(self, layer_config: str, in_channels: int = 2, num_features: int = 9, dropout: float = 0.0):
         super(AlexNetBackbone, self).__init__(layer_config, in_channels)
         self.in_channels = in_channels
         self.norm_type = layer_config
+        self.num_features = num_features
+        self.dropout = dropout
         self.layers = self.make_layers(
             norm_type=self.norm_type,
-            in_channels=in_channels
+            in_channels=in_channels,
+            num_features=self.num_features,
+            dropout=self.dropout,
         )
 
         initialize_weights(self.layers, activation='relu')
@@ -23,7 +28,7 @@ class AlexNetBackbone(BackboneBase):
         return self.layers(x)
 
     @classmethod
-    def make_layers(cls, norm_type: str, in_channels: int):
+    def make_layers(cls, norm_type: str, in_channels: int, num_features: int,  dropout: float):
 
         if norm_type not in ['bn', 'lrn']:
             raise ValueError
@@ -91,7 +96,19 @@ class AlexNetBackbone(BackboneBase):
             )
         )
 
-        return nn.Sequential(*[block1, block2, block3, block4, block5])
+        # add sequential model in the end
+        linear = nn.Sequential(
+            collections.OrderedDict(
+                [
+                    ('gap', nn.AdaptiveAvgPool2d(1)),
+                    ('flatten', Flatten()),
+                    ('dropout', nn.Dropout(p=dropout)),
+                    ('linear', nn.Linear(256, num_features))
+                ]
+            )
+        )
+  
+        return nn.Sequential(*[block1, block2, block3, block4, block5, linear])
 
     @property
     def out_channels(self):

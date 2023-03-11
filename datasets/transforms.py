@@ -261,7 +261,7 @@ class TransformFixMatchWafer(object):
 
         # todo: delete
         assert type(basic['image']) == np.ndarray
-        assert basic['image'].shape == (32, 32, 1)
+        # assert basic['image'].shape == (32, 32, 1)
 
         strong = strong_trans(basic['image'])
         return weak, strong

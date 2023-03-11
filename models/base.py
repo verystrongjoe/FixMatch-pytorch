@@ -9,17 +9,19 @@ import torch.nn as nn
 
 
 class BackboneBase(nn.Module):
-    def __init__(self, layer_config: list, in_channels: int):
+    def __init__(self, layer_config: list, in_channels: int, num_features: int = 9, dropout: float = 0.0):
         super(BackboneBase, self).__init__()
         assert isinstance(layer_config, (str, list, dict))
         assert in_channels in [1, 2, 3]
+        assert num_features == 9
+        assert dropout >= 0. and dropout <=1.
+        
+    # def forward(self, x):
+    #     raise NotImplementedError
 
-    def forward(self, x):
-        raise NotImplementedError
-
-    def freeze_weights(self):
-        for p in self.parameters():
-            p.requires_grad = False
+    # def freeze_weights(self):
+    #     for p in self.parameters():
+    #         p.requires_grad = False
 
     def load_weights_from_checkpoint(self, path: str, key: str):
         """

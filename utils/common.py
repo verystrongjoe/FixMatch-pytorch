@@ -15,6 +15,11 @@ import torch.nn.functional as F
 
 import torchmetrics
 
+from models.resnet import ResNetBackbone
+from models.vggnet import VggNetBackbone
+from models.alexnet import AlexNetBackbone
+
+from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
 
 
 def save_checkpoint(state, is_best, checkpoint, filename='checkpoint.pth.tar'):
@@ -71,14 +76,14 @@ def get_args():
 
     # project settings
     parser.add_argument('--project-name', required=True, type=str)
+    parser.add_argument('--out', type=str, default='')
 
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=0.05)
-
-    parser.add_argument('--num_channel', type=int, default=2)
+    parser.add_argument('--num_channel', type=int, default=1)
     parser.add_argument('--num_classes', type=int, default=9)
-    parser.add_argument('--size-xy', type=int, default=32)
+    parser.add_argument('--size-xy', type=int, default=96)
 
     parser.add_argument("--expand-labels", action="store_true", help="expand labels to fit eval steps")
     parser.add_argument('--decouple_input', action='store_true')
@@ -88,7 +93,7 @@ def get_args():
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
-                        choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
     # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment
@@ -132,6 +137,7 @@ def get_args():
 
 
 def create_model(args, keep=False):
+    
     if args.arch == 'wideresnet' or keep:
         import models.wideresnet as models
         args.model_depth = 28
@@ -149,8 +155,18 @@ def create_model(args, keep=False):
                                      depth=args.model_depth,
                                      width=args.model_width,
                                      num_classes=args.num_classes)
-    elif args.arch == 'alexnet' or args.arch == 'vggnet' or args.arch == 'vggnet-bn' or args.arch == 'resnet18' or args.arch == 'resnet50':
-        model = AdvancedCNN(args)
+    elif args.arch == 'alexnet-bn':
+        model = AlexNetBackbone('bn', in_channels=args.num_channel)
+    elif args.arch == 'alextnet-lrn':
+        model = AlexNetBackbone('lrn', in_channels=args.num_channel)
+    elif args.arch == 'vggnet':
+        model = VggNetBackbone(VGGNET_BACKBONE_CONFIGS['16'], in_channels=args.num_channel)
+    elif args.arch == 'vggnet-bn':
+        model = VggNetBackbone(VGGNET_BACKBONE_CONFIGS['16.bn'], in_channels=args.num_channel)
+    elif args.arch == 'resnet18':
+        model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['18'], in_channels=1)
+    elif args.arch == 'resnet50': 
+        model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['50'], in_channels=1)
     else:
         raise ValueError('unknown model')
 
