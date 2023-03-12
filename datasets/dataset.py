@@ -139,8 +139,11 @@ class WM811KUnlabled(Dataset):
         self.args = kwargs.get('args', 0)
 
         images = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
-        saliency_maps = np.asarray([image.replace('.png', f'_saliency_{self.args.proportion}.npy') for image in images])
-        
+        if self.args.keep:
+            saliency_maps = np.asarray([image.replace('.png', f'_saliency_{self.args.proportion}.npy') for image in images])
+        else:
+            saliency_maps = np.asarray(['' for image in images])
+
         if self.args.proportion != 1.:  
             X_train, _, y_train, _ = train_test_split(
                 images, saliency_maps, train_size=int(len(saliency_maps)*self.args.proportion), shuffle=True, random_state=1993 + self.args.seed)
@@ -152,7 +155,7 @@ class WM811KUnlabled(Dataset):
     def __getitem__(self, idx):
         path, saliency_map = self.samples[idx]
         x = self.load_image_cv2(path)
-        weak, strong = self.transform(x, np.load(saliency_map))
+        weak, strong = self.transform(x, np.load(saliency_map) if self.args.keep else None)
         return (weak, strong), []
 
     def __len__(self):
