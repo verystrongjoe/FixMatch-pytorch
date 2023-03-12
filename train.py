@@ -23,6 +23,8 @@ from utils.common import set_seed, create_model, get_cosine_schedule_with_warmup
 from datetime import datetime
 import yaml
 from argparse import Namespace
+from PIL import Image
+
 
 logger = logging.getLogger(__name__)
 best_valid_f1 = 0
@@ -80,6 +82,7 @@ def prerequisite(args):
             args.num_classes = 9
         else:
             args.num_classes = 8
+            
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 2
@@ -284,11 +287,20 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         # strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
 
         # rgb image
-        weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
-        strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
+        # weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
+        # strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
-        wandb.log({"weak_image": weak_image})
-        wandb.log({"strong_image": strong_image})
+        weak_image = inputs_u_w[0].detach().numpy().astype(np.uint8)      # 96 x 96 x 1
+        strong_image = inputs_u_s[0].detach().numpy().astype(np.uint8)    # 96 x 96 x 1
+
+        two_images = Image.new('RGB',(2*weak_image.size[0], weak_image.size[1]))
+        two_images.paste(weak_image,(0,0))
+        two_images.paste(strong_image,(weak_image.size[0],0))
+
+        wandb.log({"two_images": two_images}, caption="Weak vs Strong image")
+        
+        # wandb.log({"weak_image": weak_image})
+        # wandb.log({"strong_image": strong_image})
 
         wandb.log({
             'train/1.train_loss': losses.avg,
@@ -326,23 +338,22 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             #     }
             # )
             
-            
-        model_to_save = model.module if hasattr(model, "module") else model
-        if args.use_ema:
-            ema_to_save = ema_model.ema.module if hasattr(
-                ema_model.ema, "module") else ema_model.ema
-            
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model_to_save.state_dict(),
-            'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
-            'acc': test_acc,
-            'best_valid_f1': best_valid_f1,
-            'best_test_f1': best_test_f1,
-            'optimizer': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict(),
-        }, is_best, args.out)
-        logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
+            model_to_save = model.module if hasattr(model, "module") else model
+            if args.use_ema:
+                ema_to_save = ema_model.ema.module if hasattr(
+                    ema_model.ema, "module") else ema_model.ema
+                
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model_to_save.state_dict(),
+                'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
+                'acc': test_acc,
+                'best_valid_f1': best_valid_f1,
+                'best_test_f1': best_test_f1,
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
+            }, is_best, args.out)
+            logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
 def evaluate(args, loader, model, valid_f1=None):

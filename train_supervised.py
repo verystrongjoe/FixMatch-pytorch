@@ -54,7 +54,6 @@ def prerequisite(args):
     
     if args.out == '':
         args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
-  
     os.makedirs(args.out, exist_ok=True)
     print(f'{args.out} directory created.')
 
@@ -76,8 +75,7 @@ def prerequisite(args):
 
 
 def main():
-    # fix init params and args
-    global best_f1
+    global best_f1  # fix init params and args
     best_f1 = 0
     args = get_args()
     prerequisite(args)
@@ -93,7 +91,6 @@ def main():
 
 
 def main_worker(local_rank: int, args: object):
-
     torch.cuda.set_device(local_rank)
 
     if args.world_size > 1:
@@ -235,14 +232,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             targets_x = targets_x.to(args.local_rank)
             inputs_x = inputs_x.to(args.local_rank)
 
-            # make 3 channels
-            # inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
+            # inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()  # make 3 channels
             inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
             logits = model(inputs_x)
             loss = F.cross_entropy(logits, targets_x.long(), reduction='mean')
             loss.backward()
             losses.update(loss.item())
-
             optimizer.step()
             scheduler.step()
             if args.use_ema:
@@ -287,27 +282,30 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         is_best = valid_f1 > best_f1
         best_f1 = max(valid_f1, best_f1)
+        
         if is_best:  # save best f1
             wandb.run.summary["test_best_acc"] = test_acc
             wandb.run.summary["test_best_loss"] = test_loss
             wandb.run.summary["test_best_auprc"] = test_auprc
             wandb.run.summary["test_best_f1"] = test_f1
 
-        model_to_save = model.module if hasattr(model, "module") else model
-        if args.use_ema:
-            ema_to_save = ema_model.ema.module if hasattr(
-                ema_model.ema, "module") else ema_model.ema
+            model_to_save = model.module if hasattr(model, "module") else model
 
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model_to_save.state_dict(),
-            'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
-            'acc': test_acc,
-            'best_f1': best_f1,
-            'optimizer': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict(),
-        }, is_best, args.out)
-        args.logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
+            if args.use_ema:
+                ema_to_save = ema_model.ema.module if hasattr(
+                    ema_model.ema, "module") else ema_model.ema
+
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model_to_save.state_dict(),
+                'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
+                'acc': test_acc,
+                'best_f1': best_f1,
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
+            }, is_best, args.out)
+
+            args.logger.info('Best top-1 f1 score: {:.2f}'.format(best_f1))
 
 
 def test(args, loader, model, epoch):

@@ -24,7 +24,7 @@ do
     do
         for l in 1 5 10
         do 
-            for t in 0.25 0.5
+            for t in 0.5
             do
                 for m in 3 10
                 do
