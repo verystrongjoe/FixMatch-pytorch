@@ -219,14 +219,14 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         for batch_idx in range(len(labeled_trainloader)):
             try:
-                inputs_x, targets_x = labeled_iter.next()
+                inputs_x, targets_x = next(labeled_iter)
             except:
                 if args.world_size > 1:
                     labeled_epoch += 1
                     labeled_trainloader.sampler.set_epoch(labeled_epoch)
                 labeled_iter = iter(labeled_trainloader)
                 args.logger.info('train labeled dataset iter is reset.')
-                inputs_x, targets_x = labeled_iter.next()
+                inputs_x, targets_x = next(labeled_iter)
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
