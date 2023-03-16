@@ -32,10 +32,11 @@ def get_args():
     parser.add_argument('--num-workers', type=int, default=0, help='number of workers')
     parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=1.)
     parser.add_argument('--num_classes', type=int, default=8)
-    parser.add_argument('--size-xy', type=int, default=32)
+    parser.add_argument('--size-xy', type=int, default=96)
 
     # model
-    parser.add_argument('--arch', type=str, default='wideresnet', choices=('resnet', 'vggnet', 'alexnet', 'wideresnet', 'resnext'))
+    parser.add_argument('--arch', type=str, default='wideresnet', 
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
 
     # experiment
     parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
@@ -65,11 +66,9 @@ def get_args():
 
 def main():
     args = get_args()
-    device = torch.device('cuda', args.num_gpu)
-    args.num_classes = 8
+    args.num_classes = 9
     args.local_rank = 0
 
-    assert args.arch in ('wideresnet', 'resnext')
     if args.arch == 'wideresnet':
         args.model_depth = 28
         args.model_width = 2
@@ -80,15 +79,16 @@ def main():
 
     checkpoint = torch.load(f'results/wm811k-supervised-{args.proportion}/model_best.pth.tar')
     model = create_model(args)
-    
-    
-    if args.use_ema:
-        from models.ema import ModelEMA
-        ema_model = ModelEMA(args, model, args.ema_decay)
+    model.to(args.local_rank)
     model.load_state_dict(checkpoint['state_dict'])
-    if args.use_ema:
-        ema_model.ema.load_state_dict(checkpoint['ema_state_dict'])  # todo : EMA 모델 사용하는게 맞는지 비교 필요
-    model.to(device)
+    
+    # if args.use_ema:
+    #     from models.ema import ModelEMA
+    #     ema_model = ModelEMA(args, model, args.ema_decay)
+    
+    # if args.use_ema:
+    #     ema_model.ema.load_state_dict(checkpoint['ema_state_dict'])  # todo : EMA 모델 사용하는게 맞는지 비교 필요
+
     model.eval()
     for param in model.parameters():
         param.requires_grad = False
@@ -106,12 +106,10 @@ def main():
         num_workers=args.num_workers)
 
     for batch_idx, (inputs_x, paths_x) in tqdm(enumerate(loader)):
-        inputs_x = inputs_x.to(device)
-
         # make 3 channels
-        images_ = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
-        images_ = images_.permute(0, 3, 1, 2)  # (c, h, w)
-        images_ = images_.to(device)
+        # images_ = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()
+        images_ = inputs_x.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+        images_ = images_.to(args.local_rank)
         images_.requires_grad = True
         preds = model(images_)  # forward model
         score, _ = torch.max(preds, 1)
@@ -122,6 +120,7 @@ def main():
         slc_ -= slc_.min(1, keepdim=True)[0]
         slc_ /= slc_.max(1, keepdim=True)[0]
         slc_ = slc_.view(b, h, w)          # (128, 32, 32)
+        print(slc_.shape)
 
         for bi in range(len(slc_)):
             image = slc_[bi:bi+1, :, :].detach().cpu().numpy()

@@ -290,14 +290,17 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         # weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
         # strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
-        weak_image = inputs_u_w[0].detach().numpy().astype(np.uint8)      # 96 x 96 x 1
-        strong_image = inputs_u_s[0].detach().numpy().astype(np.uint8)    # 96 x 96 x 1
+        weak_image = (inputs_u_w[0].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+        strong_image = (inputs_u_s[0].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+        
+        h, w = weak_image.shape[0], weak_image.shape[0]
 
-        two_images = Image.new('RGB',(2*weak_image.size[0], weak_image.size[1]))
-        two_images.paste(weak_image,(0,0))
-        two_images.paste(strong_image,(weak_image.size[0],0))
+        two_images = Image.new('L',(2*weak_image.shape[0], weak_image.shape[0]))
+        two_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+        two_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
 
-        wandb.log({"two_images": two_images}, caption="Weak vs Strong image")
+        two_images = wandb.Image(two_images, caption="Weak vs Strong image")
+        wandb.log({"two_images": two_images})
         
         # wandb.log({"weak_image": weak_image})
         # wandb.log({"strong_image": strong_image})

@@ -35,7 +35,7 @@ def set_seed(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)   # 기존에 없었던 것 추가
-    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False  # 기존 True -> False
     print(f'{args.seed} seed is set.')
 
@@ -139,7 +139,7 @@ def get_args():
 
 def create_model(args, keep=False):
     
-    if args.arch == 'wideresnet' or keep:
+    if args.arch == 'wideresnet':
         import models.wideresnet as models
         args.model_depth = 28
         args.model_width = 2
