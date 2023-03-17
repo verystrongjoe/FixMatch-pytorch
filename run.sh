@@ -1,24 +1,27 @@
-proportion=0.05
-epoch=500
-lr=0.05
+# nohup ./run.sh > nohup1.out &
+# tail -f nohup.out 
+
+epoch=2000
+lr=0.025
 arch=resnet18
+proportion=0.05
 
-pn=waferfix-$arch-lr-$lr-prop-$proportion
+pn=waferfix-$arch-lr-$lr-prop-$proportion-epoch-$epoch
 
-
-for n in 4 
+for n in 6
 do 
     for th in 0.95
     do
         for l in 1 5 10
         do 
-            for t in 0.5
+            for t in 0.3
             do
-                CUDA_VISIBLE_DEVICES=0 python -m train --lambda-u $l --nm-optim adamw --epochs 600 --tau $t --gpus 0 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch wideresnet --batch-size 256  --lr 0.003 --seed 1234
-                CUDA_VISIBLE_DEVICES=0 python -m train --lambda-u $l --nm-optim adamw --epochs 600 --tau $t --gpus 0 --project-name $pn         --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr 0.003 --seed 1234
+                for m in 3 10
+                do
+                    CUDA_VISIBLE_DEVICES=0 python -m train --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
+                    CUDA_VISIBLE_DEVICES=0 python -m train --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn         --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
+                done
             done
         done
     done
 done
-
-

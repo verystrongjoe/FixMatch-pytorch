@@ -2,7 +2,7 @@
 # tail -f nohup3.out 
 
 epoch=2000
-lr=0.05
+lr=0.025
 arch=resnet18
 proportion=0.05
 
@@ -15,7 +15,7 @@ gpu_2_1="MIG-21d343f4-de6e-5d44-9774-e2f3dbab968d"
 gpu_3_0="MIG-0b2452d4-9b27-530f-a6f1-1c2d05dfaa72"
 gpu_3_1="MIG-e46a8085-268f-5417-8e5a-a9e20578424d"
 
-pn=waferfix-$arch-lr-$lr-epoch-$epoch
+pn=waferfix-$arch-lr-$lr-prop-$proportion-epoch-$epoch
 
 for n in 4
 do 
@@ -23,7 +23,7 @@ do
     do
         for l in 1 5 10
         do 
-            for t in 0.3 0.5
+            for t in 0.3
             do
                 for m in 3 10
                 do  
