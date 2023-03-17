@@ -291,7 +291,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
         three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
         three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[0])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+        if args.keep:
+            three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[0])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+        else:
+            three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
         three_images = wandb.Image(three_images, caption=caption[0])
         wandb.log({"weak/strong/saliency_map": three_images})
         
