@@ -155,8 +155,11 @@ class WM811KUnlabled(Dataset):
     def __getitem__(self, idx):
         path, saliency_map = self.samples[idx]
         x = self.load_image_cv2(path)
-        weak, strong = self.transform(x, np.load(saliency_map) if self.args.keep else None)
-        return (weak, strong), []
+        
+        weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
+
+        # caption 앞에 파일 경로 추가        
+        return (weak, strong, path+caption, saliency_map), []
 
     def __len__(self):
         return len(self.samples)

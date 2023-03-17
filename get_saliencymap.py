@@ -120,7 +120,6 @@ def main():
         slc_ -= slc_.min(1, keepdim=True)[0]
         slc_ /= slc_.max(1, keepdim=True)[0]
         slc_ = slc_.view(b, h, w)          # (128, 32, 32)
-        print(slc_.shape)
 
         for bi in range(len(slc_)):
             image = slc_[bi:bi+1, :, :].detach().cpu().numpy()

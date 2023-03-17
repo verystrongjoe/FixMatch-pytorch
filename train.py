@@ -1,20 +1,16 @@
 import os
 import logging
-import math
 import time
 import numpy as np
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
-import torch.multiprocessing as mp
 import wandb
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from datasets.samplers import ImbalancedDatasetSampler
 from tqdm import tqdm
-
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K
 from utils import AverageMeter, accuracy
@@ -149,9 +145,11 @@ def main(local_rank, args):
     else:
         raise ValueError("unknown optim")
 
+    # TODO: warmp up 파라미터 값 변화주기
     scheduler = get_cosine_schedule_with_warmup(optimizer, args.warmup, args.epochs  * len(labeled_trainloader))
     ema_model = None
 
+    # TODO: ema 로직 잘 작동하는걸까, ema_decay 파라미터 값 변화주기
     if args.use_ema:
         logger.info('current model changes to ema model..')
         from models.ema import ModelEMA
@@ -196,7 +194,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         unlabeled_epoch = 0
         labeled_trainloader.sampler.set_epoch(labeled_epoch)
         unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
-
     unlabeled_iter = iter(unlabeled_trainloader)
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -207,16 +204,15 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         losses_u = AverageMeter()
         masks = AverageMeter()
         count = AverageMeter()
-
         p_bar = tqdm((labeled_trainloader))
        
         for batch_idx, (inputs_x, targets_x) in enumerate(labeled_trainloader):
             try:
-                (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
+                (inputs_u_w, inputs_u_s, caption, saliency_map), _ = next(unlabeled_iter)
             except:
                 unlabeled_iter = iter(unlabeled_trainloader)
                 args.logger.info('train unlabeled dataset iter is reset.')
-                (inputs_u_w, inputs_u_s), _ = next(unlabeled_iter)
+                (inputs_u_w, inputs_u_s, caption, saliency_map), _ = next(unlabeled_iter)
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
@@ -226,7 +222,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             # make 3 channels
             # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
             inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
-            
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
             logits_x = logits[:batch_size]
@@ -271,7 +266,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 prop=(masks.sum/count.sum)*100
                 )
             )
-            
             p_bar.update()
 
         if args.use_ema:
@@ -292,24 +286,21 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         weak_image = (inputs_u_w[0].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
         strong_image = (inputs_u_s[0].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-        
         h, w = weak_image.shape[0], weak_image.shape[0]
 
-        two_images = Image.new('L',(2*weak_image.shape[0], weak_image.shape[0]))
-        two_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-        two_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-
-        two_images = wandb.Image(two_images, caption="Weak vs Strong image")
-        wandb.log({"two_images": two_images})
+        three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+        three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+        three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[0])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+        three_images = wandb.Image(three_images, caption=caption[0])
+        wandb.log({"weak/strong/saliency_map": three_images})
         
-        # wandb.log({"weak_image": weak_image})
-        # wandb.log({"strong_image": strong_image})
-
         wandb.log({
             'train/1.train_loss': losses.avg,
             'train/2.train_loss_x': losses_x.avg,
             'train/3.train_loss_u': losses_u.avg,
             'train/4.mask': masks.sum,
+            'train/4.mask_prop': (masks.sum/count.sum)*100,
             'valid/1.test_acc': valid_acc,
             'valid/2.test_loss': valid_loss,
             'valid/3.test_auprc': valid_auprc,
@@ -332,14 +323,14 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             wandb.run.summary["test_best_f1_max"] = best_test_f1
             wandb.run.summary["test_best_f1"] = test_f1  
             
-            # wandb.log({f"conf_mat_{epoch}" :
-            #     wandb.plot.confusion_matrix(
-            #         probs=None,
-            #         y_true=total_reals,
-            #         preds=total_preds,
-            #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-            #     }
-            # )
+            wandb.log({f"conf_mat_{epoch}" :
+                wandb.plot.confusion_matrix(
+                    probs=None,
+                    y_true=total_reals,
+                    preds=total_preds,
+                    class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                }
+            )
             
             model_to_save = model.module if hasattr(model, "module") else model
             if args.use_ema:

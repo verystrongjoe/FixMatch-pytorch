@@ -1,4 +1,3 @@
-import numpy
 import torch
 import numpy as np
 from numpy import random
@@ -13,6 +12,7 @@ from utils.common import create_model
 from typing import Any, Dict, Tuple, Union
 import torch.nn.functional as F
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union, cast
+import re
 
 
 class ToWBM(ImageOnlyTransform):
@@ -107,7 +107,7 @@ class WM811KTransform(object):
         transform = [
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            # A.RandomCrop(height=size[0], width=size[1], p=1.0),   
+            # A.RandomCrop(height=size[0], width=size[1], p=0.5),     # todo : 적용해봐야하나..
             A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
             ToWBM()
         ]
@@ -139,58 +139,68 @@ class WM811KTransformMultiple(object):
         self.magnitudes = []
 
         # generate modes and magnitudes
-        logs = f"{args.n_weaks_combinations} Strong Augmentations : ["
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
             magnitude = random.rand()
             self.modes.append(mode)
             self.magnitudes.append(magnitude)
-            logs += f"{mode}({magnitude}), "
-        # args.logger.info(logs+"]")
 
+        #TODO: cutout 파라미터!!
+        cutout_size = 5
+        cutout_fill_value = 1
+        
+        caption = "["
+        ############################################################################################################################################
         # keep-cutout  or cutout
         for i in range(len(self.magnitudes)):
             mode, magnitude = self.modes[i], self.magnitudes[i]
-            num_holes: int = int(5 * magnitude)
+            num_holes: int = int(5 * magnitude) + 1
             if mode == 'cutout':
                 _transforms.append(ToWBM())
                 if args.keep:
                     _transforms.append(
-                        KeepCutout(args=args, saliency_map=saliency_map, num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                        KeepCutout(args=args, saliency_map=saliency_map, num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, 
+                                   fill_value=cutout_fill_value, p=1.0)
                     )
                 else:
                     _transforms.append(
                         A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
                     )
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
+      
         # noise
         for i in range(len(self.magnitudes)):
             mode, magnitude = self.modes[i], self.magnitudes[i]
             if mode == 'noise':
-                range_magnitude = (0., 0.20)
+                range_magnitude = (0., 0.10) #TODO: noise min, max 지정
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 _transforms.append(ToWBM())
                 _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
-
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
         # crop, rotate, shift
         for i in range(args.n_weaks_combinations):
             mode, magnitude = self.modes[i], self.magnitudes[i]
             if mode == 'crop':
-                range_magnitude = (0.5, 1.0)  # scale
+                range_magnitude = (0.7, 1.0)  # scale  # cropout min, max 범위 지정
                 final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
                 ratio = (0.9, 1.1)  # WaPIRL
                 _transforms.append(A.RandomResizedCrop(*size, scale=(0.7, 0.9), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
-                
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
             elif mode == 'cutout' and not args.keep:
-                num_holes: int = int(5 * magnitude)  # WaPIRL 기본 셋팅 4에 대해서 실행 -> 230106 연구미팅 셋팅값 지금 1로 변경(230115)
+                #TODO: cutout 구멍 개수 파라미터
+                num_holes: int = 1 + int(5 * magnitude)  # WaPIRL 기본 셋팅 4
+                fill_value = 1 #TODO: 채울 값을 정상값으로 지정. 기본은 0(검정)
                 _transforms.append(
-                    A.Cutout(num_holes=num_holes, max_h_size=4, max_w_size=4, fill_value=0, p=1.0)
+                    A.Cutout(num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, fill_value=cutout_fill_value, p=1.0)
                 )
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
             elif mode == 'rotate':
                 # range_magnitude = (0, 360)
                 # final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
                 _transforms.append(A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
             elif mode == 'shift':
-                range_magnitude = (0, 0.25)
+                range_magnitude = (0, 0.25)  #  shift min, max 범위 지정
                 final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
                 _transforms.append(A.ShiftScaleRotate(
                 shift_limit=final_magnitude,
@@ -200,12 +210,18 @@ class WM811KTransformMultiple(object):
                 border_mode=cv2.BORDER_CONSTANT,
                 value=0,
                 p=1.0
-            ),)
+                ),)
+                caption += f"{mode}({int(magnitude*100)}), " if i != args.n_weaks_combinations-1  else f"{mode}({int(magnitude*100)}), "
+        ############################################################################################################################################        
+        caption = re.sub(', $', '', caption)
+        caption += "]"
+
         _transforms.append(ToWBM())
         self.transform = A.Compose(_transforms)
+        self.caption = caption
 
     def __call__(self, img):
-        return self.transform(image=img)['image']
+        return self.transform(image=img)['image'], self.caption
 
 
 class TransformFixMatch(object):
@@ -258,13 +274,8 @@ class TransformFixMatchWafer(object):
         weak = self.weak(image=x)['image']
         basic = self.basic(image=x)
         strong_trans = WM811KTransformMultiple(self.args, saliency_map)
-
-        # todo: delete
-        assert type(basic['image']) == np.ndarray
-        # assert basic['image'].shape == (32, 32, 1)
-
-        strong = strong_trans(basic['image'])
-        return weak, strong
+        strong, caption = strong_trans(basic['image'])
+        return weak, strong, caption
 
 
 class KeepCutout(ImageOnlyTransform):
