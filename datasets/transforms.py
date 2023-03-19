@@ -147,8 +147,8 @@ class WM811KTransformMultiple(object):
 
         #TODO: cutout 파라미터!!
         cutout_size = 5
-        cutout_fill_value = 1
-        
+        cutout_fill_value = 1  # TODO : 채울 값을 정상값으로 지정. 기본은 0(검정). transform이 일어나는 시점이 0,1,2 인 상황인가?
+ 
         caption = "["
         ############################################################################################################################################
         # keep-cutout  or cutout
@@ -189,7 +189,6 @@ class WM811KTransformMultiple(object):
             elif mode == 'cutout' and not args.keep:
                 #TODO: cutout 구멍 개수 파라미터
                 num_holes: int = 1 + int(5 * magnitude)  # WaPIRL 기본 셋팅 4
-                fill_value = 1 #TODO: 채울 값을 정상값으로 지정. 기본은 0(검정)
                 _transforms.append(
                     A.Cutout(num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, fill_value=cutout_fill_value, p=1.0)
                 )
