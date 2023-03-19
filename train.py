@@ -20,7 +20,7 @@ from datetime import datetime
 import yaml
 from argparse import Namespace
 from PIL import Image
-
+import collections
 
 logger = logging.getLogger(__name__)
 best_valid_f1 = 0
@@ -229,8 +229,28 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             del logits
             Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
-            max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold를 넘은 값의 logiit
-            mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값의 수도 레이블 개수
+            max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
+            mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
+          
+            #TODO: 수도 레이블이 잘 분류되는지를 캡션까지 추가해서 시각화
+            if batch_idx == 0:
+                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]  
+                if len(idxes) > 0:
+                    sample_idx = np.random.choice(np.asarray(idxes))
+                    weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                    strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                    h, w = weak_image.shape[0], weak_image.shape[0]
+                    three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                    three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                    three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                    if args.keep:
+                        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                    else:
+                        three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                    three_images = wandb.Image(three_images, caption=caption[sample_idx])
+                    wandb.log({f"weak/strong/saliency_map label : ({WM811K.idx2label[targets_u[sample_idx]]})": three_images})
+
+          
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
@@ -284,19 +304,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         # weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
         # strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
 
-        weak_image = (inputs_u_w[0].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-        strong_image = (inputs_u_s[0].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-        h, w = weak_image.shape[0], weak_image.shape[0]
-
-        three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-        three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-        three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-        if args.keep:
-            three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[0])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-        else:
-            three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-        three_images = wandb.Image(three_images, caption=caption[0])
-        wandb.log({"weak/strong/saliency_map": three_images})
         
         wandb.log({
             'train/1.train_loss': losses.avg,
@@ -370,6 +377,7 @@ def evaluate(args, loader, model, valid_f1=None):
 
     total_preds = []
     total_reals = []
+    total_images = []
     
     loader = tqdm(loader)
     model.eval()
@@ -378,15 +386,14 @@ def evaluate(args, loader, model, valid_f1=None):
         for batch_idx, (inputs, targets) in enumerate(loader):
             
             data_time.update(time.time() - end)
-            
             inputs3 = inputs.to(args.local_rank)
             targets = targets.to(args.local_rank)
             
             # inputs3 = F.one_hot(inputs3.long(), num_classes=3).squeeze().float()    # make 3 channels
             inputs3 = inputs3.permute(0, 3, 1, 2).float()  # (b, h, w, c) -> (b, c, h, w)
-
             outputs = model(inputs3)
-
+            
+            total_images.append(inputs)
             total_preds.append(torch.argmax(outputs, dim=1).cpu().detach().numpy())
             total_reals.append(targets.cpu().detach().numpy())
 
@@ -416,7 +423,8 @@ def evaluate(args, loader, model, valid_f1=None):
                 f1=f1s.avg
             ))
         loader.close()
-            
+        
+        total_images = np.concatenate(total_images)    
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
@@ -444,6 +452,24 @@ def evaluate(args, loader, model, valid_f1=None):
         3    1729
         dtype: int64
         """
+    
+    # total_preds, total_reals
+    # WM811K.label2idx  -> 이 데이터 조회
+
+    preds = total_preds[total_preds!=total_reals] 
+    reals = total_reals[total_preds!=total_reals]
+    images = total_images[total_preds!=total_reals]
+    
+    for label in WM811K.idx2label: # remove unknown
+        if label != '-':
+            wrong_images = images[reals==label] 
+            wrong_labels = preds[reals==label]
+            
+            for wrong_label, wrong_image in zip(wrong_labels, wrong_images):
+                wandb_img = wandb.Image(wrong_image, caption=wrong_label)
+                wandb.log({label: wandb_img})
+
+   
     return losses.avg, top1s.avg, auprcs.avg, f1s.avg, total_reals, total_preds 
 
 
