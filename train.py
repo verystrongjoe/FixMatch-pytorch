@@ -247,9 +247,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                         three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
                     else:
                         three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                    final_caption = caption[sample_idx].replace('/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                    final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
                     three_images = wandb.Image(three_images, caption=final_caption)
-                    wandb.log({f"label : ({WM811K.idx2label[targets_u[sample_idx]]})": three_images})
+                    wandb.log({f"label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
 
           
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
