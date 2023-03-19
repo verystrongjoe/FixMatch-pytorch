@@ -2,7 +2,7 @@
 # tail -f nohup3.out 
 
 epoch=2000
-lr=0.025
+lr=0.005
 arch=resnet18
 proportion=0.05
 
