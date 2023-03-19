@@ -249,7 +249,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                         three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
                     final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
                     three_images = wandb.Image(three_images, caption=final_caption)
-                    wandb.log({f"label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+                    wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
 
           
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
@@ -457,20 +457,20 @@ def evaluate(args, loader, model, valid_f1=None):
     # total_preds, total_reals
     # WM811K.label2idx  -> 이 데이터 조회
 
-    preds = total_preds[total_preds!=total_reals] 
-    reals = total_reals[total_preds!=total_reals]
-    images = total_images[total_preds!=total_reals]
+    preds = np.asarray(total_preds[total_preds!=total_reals]) 
+    reals = np.asarray(total_reals[total_preds!=total_reals])
+    images = np.asarray(total_images[total_preds!=total_reals])
     
-    for label in WM811K.idx2label: # remove unknown
+    for label_idx in range(len(WM811K.idx2label)): # remove unknown
+        label = WM811K.idx2label[label_idx]
         if label != '-':
-            wrong_images = images[reals==label] 
-            wrong_labels = preds[reals==label]
+            wrong_images = images[reals==label_idx] 
+            wrong_labels_idxes = preds[reals==label_idx]
             
-            for wrong_label, wrong_image in zip(wrong_labels, wrong_images):
-                wandb_img = wandb.Image(wrong_image, caption=wrong_label)
-                wandb.log({label: wandb_img})
+            for wrong_label_idx, wrong_image in zip(wrong_labels_idxes, wrong_images):
+                wandb_img = wandb.Image(wrong_image.squeeze()*127.5, caption=WM811K.idx2label[wrong_label_idx]) # 96, 96, 1 #inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5
+                wandb.log({f"{label}(real)": wandb_img})
 
-   
     return losses.avg, top1s.avg, auprcs.avg, f1s.avg, total_reals, total_preds 
 
 
