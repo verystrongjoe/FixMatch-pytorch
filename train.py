@@ -31,36 +31,35 @@ def prerequisite(args):
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
     args.logger = logger
+    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
 
     if not args.wandb:
         wandb_mode = 'disabled'
         args.logger.info('wandb disabled.')
+        assert not args.sweep 
     else:
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
-
-    # set wandb
-    wandb.init(project=args.project_name, config=args, mode=wandb_mode)
-    if args.sweep:
-        args.logger.info('existing confiuguration will be replaced by sweep yaml.')
-        try:
-            with open('./sweep.yaml') as file:
-                config = yaml.load(file, Loader=yaml.FullLoader)            
-                wandb.config.update(config)
-                args.proportion = wandb.config.proportion
-                args.n_weaks_combinations = wandb.config.n_weaks_combinations
-                args.tau = wandb.config.tau
-                args.threshold = wandb.config.threshold
-                args.lambda_u = wandb.config.lambda_u
-                args.mu = wandb.config.mu
-                args.nm_optim = wandb.config.nm_optim
-                args.seed = wandb.config.seed
-                args.keep = wandb.config.keep
-        except:
-             args.logger.warn('there is no sweep yaml.')             
-
-    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
-    wandb.run.name = run_name
+        # set wandb
+        wandb.init(project=args.project_name, config=args, mode=wandb_mode)
+        if args.sweep:
+            args.logger.info('existing confiuguration will be replaced by sweep yaml.')
+            try:
+                with open('./sweep.yaml') as file:
+                    config = yaml.load(file, Loader=yaml.FullLoader)            
+                    wandb.config.update(config)
+                    args.proportion = wandb.config.proportion
+                    args.n_weaks_combinations = wandb.config.n_weaks_combinations
+                    args.tau = wandb.config.tau
+                    args.threshold = wandb.config.threshold
+                    args.lambda_u = wandb.config.lambda_u
+                    args.mu = wandb.config.mu
+                    args.nm_optim = wandb.config.nm_optim
+                    args.seed = wandb.config.seed
+                    args.keep = wandb.config.keep
+            except:
+                args.logger.warn('there is no sweep yaml.')             
+        wandb.run.name = run_name
     
     if args.seed is not None:
         set_seed(args)
@@ -71,7 +70,6 @@ def prerequisite(args):
     
     os.makedirs(args.out, exist_ok=True)
     print(f'{args.out} directory created.')
-
 
     if args.dataset == 'wm811k':
         if not args.exclude_none:
@@ -219,8 +217,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
             targets_x = targets_x.to(args.local_rank)
 
-            # make 3 channels
-            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()
+            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
             inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
@@ -232,8 +229,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
             mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
           
-            #TODO: 수도 레이블이 잘 분류되는지를 캡션까지 추가해서 시각화
-            if batch_idx == 0:
+            #TODO: wandb 경량화
+            if args.wandb and batch_idx == 0:
                 idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]  
                 if len(idxes) > 0:
                     sample_idx = np.random.choice(np.asarray(idxes))
@@ -250,7 +247,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                     final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
                     three_images = wandb.Image(three_images, caption=final_caption)
                     wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-
           
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
@@ -297,30 +293,22 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
         test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
 
-        # black/white image
-        # weak_image = wandb.Image(inputs_u_w[0].detach().numpy().astype(np.uint8), caption="Weak image")       # 32 x 32 x 1
-        # strong_image = wandb.Image(inputs_u_s[0].detach().numpy().astype(np.uint8), caption="Strong image")   # 32 x 32 x 1
-
-        # rgb image
-        # weak_image = wandb.Image(F.one_hot(inputs_u_w[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Weak image")
-        # strong_image = wandb.Image(F.one_hot(inputs_u_s[0].long(), num_classes=3).squeeze().numpy().astype(np.uint8), caption="Strong image")
-
-        
-        wandb.log({
-            'train/1.train_loss': losses.avg,
-            'train/2.train_loss_x': losses_x.avg,
-            'train/3.train_loss_u': losses_u.avg,
-            'train/4.mask': masks.sum,
-            'train/4.mask_prop': (masks.sum/count.sum)*100,
-            'valid/1.test_acc': valid_acc,
-            'valid/2.test_loss': valid_loss,
-            'valid/3.test_auprc': valid_auprc,
-            'valid/4.test_f1': valid_f1,
-            'test/1.test_acc': test_acc,
-            'test/2.test_loss': test_loss,
-            'test/3.test_auprc': test_auprc,
-            'test/4.test_f1': test_f1
-            })
+        if args.wandb:
+            wandb.log({
+                'train/1.train_loss': losses.avg,
+                'train/2.train_loss_x': losses_x.avg,
+                'train/3.train_loss_u': losses_u.avg,
+                'train/4.mask': masks.sum,
+                'train/4.mask_prop': (masks.sum/count.sum)*100,
+                'valid/1.test_acc': valid_acc,
+                'valid/2.test_loss': valid_loss,
+                'valid/3.test_auprc': valid_auprc,
+                'valid/4.test_f1': valid_f1,
+                'test/1.test_acc': test_acc,
+                'test/2.test_loss': test_loss,
+                'test/3.test_auprc': test_auprc,
+                'test/4.test_f1': test_f1
+                })
 
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
@@ -328,20 +316,21 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         
         
         if is_best:  # save best f1
-            wandb.run.summary["test_best_acc"] = test_acc
-            wandb.run.summary["test_best_loss"] = test_loss  
-            wandb.run.summary["test_best_auprc"] = test_auprc  
-            wandb.run.summary["test_best_f1_max"] = best_test_f1
-            wandb.run.summary["test_best_f1"] = test_f1  
-            
-            wandb.log({f"conf_mat_{epoch}" :
-                wandb.plot.confusion_matrix(
-                    probs=None,
-                    y_true=total_reals,
-                    preds=total_preds,
-                    class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                }
-            )
+            if args.wandb:
+                wandb.run.summary["test_best_acc"] = test_acc
+                wandb.run.summary["test_best_loss"] = test_loss  
+                wandb.run.summary["test_best_auprc"] = test_auprc  
+                wandb.run.summary["test_best_f1_max"] = best_test_f1
+                wandb.run.summary["test_best_f1"] = test_f1  
+
+                wandb.log({f"conf_mat_{epoch}" :
+                    wandb.plot.confusion_matrix(
+                        probs=None,
+                        y_true=total_reals,
+                        preds=total_preds,
+                        class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                    }
+                )
             
             model_to_save = model.module if hasattr(model, "module") else model
             if args.use_ema:
@@ -457,19 +446,19 @@ def evaluate(args, loader, model, valid_f1=None):
     # total_preds, total_reals
     # WM811K.label2idx  -> 이 데이터 조회
 
-    preds = np.asarray(total_preds[total_preds!=total_reals]) 
-    reals = np.asarray(total_reals[total_preds!=total_reals])
-    images = np.asarray(total_images[total_preds!=total_reals])
-    
-    for label_idx in range(len(WM811K.idx2label)): # remove unknown
-        label = WM811K.idx2label[label_idx]
-        if label != '-':
-            wrong_images = images[reals==label_idx] 
-            wrong_labels_idxes = preds[reals==label_idx]
-            
-            for wrong_label_idx, wrong_image in zip(wrong_labels_idxes, wrong_images):
-                wandb_img = wandb.Image(wrong_image.squeeze()*127.5, caption=WM811K.idx2label[wrong_label_idx]) # 96, 96, 1 #inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5
-                wandb.log({f"{label}(real)": wandb_img})
+    if args.wandb:
+        preds = np.asarray(total_preds[total_preds!=total_reals]) 
+        reals = np.asarray(total_reals[total_preds!=total_reals])
+        images = np.asarray(total_images[total_preds!=total_reals])
+        
+        for label_idx in range(len(WM811K.idx2label)): # remove unknown
+            label = WM811K.idx2label[label_idx]
+            if label != '-':
+                wrong_images = images[reals==label_idx] 
+                wrong_labels_idxes = preds[reals==label_idx]
+                for wrong_label_idx, wrong_image in zip(wrong_labels_idxes, wrong_images):
+                    wandb_img = wandb.Image(wrong_image.squeeze()*127.5, caption=WM811K.idx2label[wrong_label_idx]) # 96, 96, 1 #inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5
+                    wandb.log({f"{label}(real)": wandb_img})
 
     return losses.avg, top1s.avg, auprcs.avg, f1s.avg, total_reals, total_preds 
 

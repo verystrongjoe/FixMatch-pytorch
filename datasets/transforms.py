@@ -251,7 +251,7 @@ class TransformFixMatchWafer(object):
         self.weak = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=args.size_xy, width=args.size_xy),  # keep!!
+            # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
             ToWBM()
         ])
         
@@ -259,7 +259,7 @@ class TransformFixMatchWafer(object):
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(),
-            A.RandomCrop(height=args.size_xy, width=args.size_xy),  # keep!!
+            # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
         ])
 
         if args.keep:
