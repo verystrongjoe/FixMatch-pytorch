@@ -229,25 +229,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
             mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
           
-            #TODO: wandb 경량화
-            if args.wandb and batch_idx == 0:
-                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]  
-                if len(idxes) > 0:
-                    sample_idx = np.random.choice(np.asarray(idxes))
-                    weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                    strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                    h, w = weak_image.shape[0], weak_image.shape[0]
-                    three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                    three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                    three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                    if args.keep:
-                        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                    else:
-                        three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                    final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                    three_images = wandb.Image(three_images, caption=final_caption)
-                    wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-          
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
@@ -292,6 +273,26 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
         test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
+        
+        #TODO: wandb 경량화
+        if args.wandb and batch_idx == 0:
+            idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
+            if len(idxes) > 0:
+                sample_idx = np.random.choice(np.asarray(idxes))
+                weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                h, w = weak_image.shape[0], weak_image.shape[0]
+                three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                if args.keep:
+                    three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                else:
+                    three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                three_images = wandb.Image(three_images, caption=final_caption)
+                wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+        
 
         if args.wandb:
             wandb.log({
