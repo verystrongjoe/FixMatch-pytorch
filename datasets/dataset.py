@@ -140,7 +140,7 @@ class WM811KUnlabled(Dataset):
 
         images = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
         if self.args.keep:
-            saliency_maps = np.asarray([image.replace('.png', f'_saliency_{self.args.proportion if args.fix_keep_proportion < 0 else args.fix_keep_proportion}.npy') for image in images])
+            saliency_maps = np.asarray([image.replace('.png', f'_saliency_{self.args.proportion if self.args.fix_keep_proportion < 0 else self.args.fix_keep_proportion}.npy') for image in images])
         else:
             saliency_maps = np.asarray(['' for image in images])
 
