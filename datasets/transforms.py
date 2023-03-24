@@ -138,7 +138,9 @@ class WM811KTransformMultiple(object):
 
         self.modes = []
         self.magnitudes = []
-
+        
+        
+       
         # generate modes and magnitudes
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)

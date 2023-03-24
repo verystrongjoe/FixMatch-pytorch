@@ -85,7 +85,14 @@ def prerequisite(args):
             args.model_depth = 28
             args.model_width = 4
     else:
-        raise ValueError('unknown dataset')
+        raise ValueError('unknown dataset') 
+    
+
+def check_args(args):
+    ######################## check and display args 
+    print(f"we are using {len(args.aug_types)} weak augmentations such as {args.aug_types}")
+    args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
+    print(f"GPU of {args.device_id} Device ID is training...")
 
 
 def main(local_rank, args):
@@ -463,6 +470,5 @@ def evaluate(args, loader, model, valid_f1=None):
 if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
-    args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
-    print(f"GPU of {args.device_id} Device ID is training...")
+    check_args(args)
     main(0, args)  # single machine, single gpu
