@@ -272,51 +272,50 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             test_model = model
 
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
-        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
-        
-        #TODO: wandb 경량화
-        if args.wandb and batch_idx == 0:
-            idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
-            if len(idxes) > 0:
-                sample_idx = np.random.choice(np.asarray(idxes))
-                weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                h, w = weak_image.shape[0], weak_image.shape[0]
-                three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                if args.keep:
-                    three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                else:
-                    three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                three_images = wandb.Image(three_images, caption=final_caption)
-                wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-        
-
-        if args.wandb:
-            wandb.log({
-                'train/1.train_loss': losses.avg,
-                'train/2.train_loss_x': losses_x.avg,
-                'train/3.train_loss_u': losses_u.avg,
-                'train/4.mask': masks.sum,
-                'train/4.mask_prop': (masks.sum/count.sum)*100,
-                'valid/1.test_acc': valid_acc,
-                'valid/2.test_loss': valid_loss,
-                'valid/3.test_auprc': valid_auprc,
-                'valid/4.test_f1': valid_f1,
-                'test/1.test_acc': test_acc,
-                'test/2.test_loss': test_loss,
-                'test/3.test_auprc': test_auprc,
-                'test/4.test_f1': test_f1
-                })
-
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
-        best_test_f1 = max(test_f1, best_test_f1)
-        
-        
+ 
         if is_best:  # save best f1
+            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
+            
+            #TODO: wandb 경량화
+            if args.wandb and batch_idx == 0:
+                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
+                if len(idxes) > 0:
+                    sample_idx = np.random.choice(np.asarray(idxes))
+                    weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                    strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                    h, w = weak_image.shape[0], weak_image.shape[0]
+                    three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                    three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                    three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                    if args.keep:
+                        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                    else:
+                        three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                    final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                    three_images = wandb.Image(three_images, caption=final_caption)
+                    wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+            
+            if args.wandb:
+                wandb.log({
+                    'train/1.train_loss': losses.avg,
+                    'train/2.train_loss_x': losses_x.avg,
+                    'train/3.train_loss_u': losses_u.avg,
+                    'train/4.mask': masks.sum,
+                    'train/4.mask_prop': (masks.sum/count.sum)*100,
+                    'valid/1.test_acc': valid_acc,
+                    'valid/2.test_loss': valid_loss,
+                    'valid/3.test_auprc': valid_auprc,
+                    'valid/4.test_f1': valid_f1,
+                    'test/1.test_acc': test_acc,
+                    'test/2.test_loss': test_loss,
+                    'test/3.test_auprc': test_auprc,
+                    'test/4.test_f1': test_f1
+                    })
+            best_test_f1 = max(test_f1, best_test_f1)
+
+
             if args.wandb:
                 wandb.run.summary["test_best_acc"] = test_acc
                 wandb.run.summary["test_best_loss"] = test_loss  

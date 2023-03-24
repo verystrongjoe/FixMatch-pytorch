@@ -63,11 +63,9 @@ class WM811K(Dataset):
         else:
             assert self.args.num_classes == 9
 
-        
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
         
-        
-        if self.args.proportion != 1.:  
+        if self.args.proportion != 1. and kwargs['phrase'] == 'train':
             X_train, X_test, y_train, y_test = train_test_split(
                 images, targets, train_size=int(len(targets)*self.args.proportion), stratify=targets,
                 shuffle=True,random_state=1993 + self.args.seed)
@@ -245,17 +243,21 @@ class WM811KSaliency(Dataset):
 
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
+        'phrase': 'train',
         'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='weak'),
         'args': args
     }
     train_unlabeld_data_kwargs = {
+        'phrase': 'train',
         'transform': TransformFixMatchWafer(args),
         'args': args,
     }
     test_data_kwargs = {
+        'phrase': 'test',
         'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
         'args': args,
     }
+
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811KUnlabled('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
     valid_dataset = WM811K('./data/wm811k/labeled/valid/', **test_data_kwargs)  # it is same as test dataset.
