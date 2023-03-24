@@ -142,12 +142,6 @@ class WM811KUnlabled(Dataset):
         else:
             saliency_maps = np.asarray(['' for image in images])
 
-        if self.args.proportion != 1.:  
-            X_train, _, y_train, _ = train_test_split(
-                images, saliency_maps, train_size=int(len(saliency_maps)*self.args.proportion), shuffle=True, random_state=1993 + self.args.seed)
-            images = X_train
-            saliency_maps = y_train
-
         self.samples = list(zip(images, saliency_maps))  # Make (path, target) pairs
 
     def __getitem__(self, idx):
@@ -157,7 +151,7 @@ class WM811KUnlabled(Dataset):
         weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
 
         # caption 앞에 파일 경로 추가        
-        return (weak, strong, path+caption, saliency_map), []
+        return weak, strong, path+caption, saliency_map
 
     def __len__(self):
         return len(self.samples)
