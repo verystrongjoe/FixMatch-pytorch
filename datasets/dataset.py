@@ -59,9 +59,12 @@ class WM811K(Dataset):
             images = np.asarray(images)[~none_idxes]
             labels = np.asarray(labels)[~none_idxes]
             num_classes = num_classes - 1
+            WM811K.num_classes = num_classes - 1
             assert self.args.num_classes == 8
+            assert WM811K.num_classes == 8
         else:
             assert self.args.num_classes == 9
+            assert WM811K.num_classes == 9
 
         
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
