@@ -106,7 +106,8 @@ class WM811KTransform(object):
         ratio = (0.9, 1.1)  # WaPIRL
         transform = [
             A.Resize(*size, interpolation=cv2.INTER_NEAREST),
-            A.HorizontalFlip(),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
             # A.RandomCrop(height=size[0], width=size[1], p=0.5),     # todo : 적용해봐야하나..
             A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
             ToWBM()
@@ -137,7 +138,9 @@ class WM811KTransformMultiple(object):
 
         self.modes = []
         self.magnitudes = []
-
+        
+        
+       
         # generate modes and magnitudes
         for i in range(args.n_weaks_combinations):
             mode = random.choice(args.aug_types)
@@ -250,14 +253,16 @@ class TransformFixMatchWafer(object):
     def __init__(self, args):
         self.weak = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
-            A.HorizontalFlip(),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
             # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
             ToWBM()
         ])
 
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
-            A.HorizontalFlip(),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
             # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
         ])
 
@@ -356,3 +361,4 @@ class KeepCutout(ImageOnlyTransform):
 
     def get_params_dependent_on_targets(self, params):
         return {}
+

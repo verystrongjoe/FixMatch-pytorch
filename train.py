@@ -85,7 +85,14 @@ def prerequisite(args):
             args.model_depth = 28
             args.model_width = 4
     else:
-        raise ValueError('unknown dataset')
+        raise ValueError('unknown dataset') 
+    
+
+def check_args(args):
+    ######################## check and display args 
+    print(f"we are using {len(args.aug_types)} weak augmentations such as {args.aug_types}")
+    args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
+    print(f"GPU of {args.device_id} Device ID is training...")
 
 
 def main(local_rank, args):
@@ -192,7 +199,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         unlabeled_epoch = 0
         labeled_trainloader.sampler.set_epoch(labeled_epoch)
         unlabeled_trainloader.sampler.set_epoch(unlabeled_epoch)
-    unlabeled_iter = iter(unlabeled_trainloader)
+    
+    labeled_iter = iter(labeled_trainloader)
 
     for epoch in range(args.start_epoch, args.epochs):
         batch_time = AverageMeter()
@@ -202,15 +210,15 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         losses_u = AverageMeter()
         masks = AverageMeter()
         count = AverageMeter()
-        p_bar = tqdm((labeled_trainloader))
+        p_bar = tqdm((unlabeled_trainloader))
        
-        for batch_idx, (inputs_x, targets_x) in enumerate(labeled_trainloader):
+        for batch_idx, (inputs_u_w, inputs_u_s, caption, saliency_map) in enumerate(unlabeled_trainloader):
             try:
-                (inputs_u_w, inputs_u_s, caption, saliency_map), _ = next(unlabeled_iter)
+                (inputs_x, targets_x) = next(labeled_iter)
             except:
-                unlabeled_iter = iter(unlabeled_trainloader)
-                args.logger.info('train unlabeled dataset iter is reset.')
-                (inputs_u_w, inputs_u_s, caption, saliency_map), _ = next(unlabeled_iter)
+                labeled_iter = iter(labeled_trainloader)
+                args.logger.info(f'train labeled dataset iter is reset at unlabeled mini-batch step of {batch_idx}')
+                (inputs_x, targets_x) = next(labeled_iter)
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
@@ -252,7 +260,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 epoch=epoch + 1,
                 epochs=args.epochs,
                 batch=batch_idx + 1,
-                iter=len(labeled_trainloader),
+                iter=len(unlabeled_trainloader),
                 lr=scheduler.get_last_lr()[0],
                 data=data_time.avg,
                 bt=batch_time.avg,
@@ -272,66 +280,61 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             test_model = model
 
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
-        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
-        
-        #TODO: wandb 경량화
-        if args.wandb and batch_idx == 0:
-            idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
-            if len(idxes) > 0:
-                sample_idx = np.random.choice(np.asarray(idxes))
-                weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                h, w = weak_image.shape[0], weak_image.shape[0]
-                three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                if args.keep:
-                    three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                else:
-                    three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                three_images = wandb.Image(three_images, caption=final_caption)
-                wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-        
-
-        if args.wandb:
-            wandb.log({
-                'train/1.train_loss': losses.avg,
-                'train/2.train_loss_x': losses_x.avg,
-                'train/3.train_loss_u': losses_u.avg,
-                'train/4.mask': masks.sum,
-                'train/4.mask_prop': (masks.sum/count.sum)*100,
-                'valid/1.test_acc': valid_acc,
-                'valid/2.test_loss': valid_loss,
-                'valid/3.test_auprc': valid_auprc,
-                'valid/4.test_f1': valid_f1,
-                'test/1.test_acc': test_acc,
-                'test/2.test_loss': test_loss,
-                'test/3.test_auprc': test_auprc,
-                'test/4.test_f1': test_f1
-                })
-
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
-        best_test_f1 = max(test_f1, best_test_f1)
-        
-        
+ 
         if is_best:  # save best f1
+            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
+            best_test_f1 = max(test_f1, best_test_f1)            
+            
             if args.wandb:
-                wandb.run.summary["test_best_acc"] = test_acc
+                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
+                if len(idxes) > 0:
+                    sample_idx = np.random.choice(np.asarray(idxes))
+                    weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                    strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                    h, w = weak_image.shape[0], weak_image.shape[0]
+                    three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                    three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                    three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                    if args.keep:
+                        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                    else:
+                        three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                    final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                    three_images = wandb.Image(three_images, caption=final_caption)
+                    wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+            
+                wandb.log({
+                    'train/1.train_loss': losses.avg,
+                    'train/2.train_loss_x': losses_x.avg,
+                    'train/3.train_loss_u': losses_u.avg,
+                    'train/4.mask': masks.sum,
+                    'train/4.mask_prop': (masks.sum/count.sum)*100,
+                    'valid/1.test_acc': valid_acc,
+                    'valid/2.test_loss': valid_loss,
+                    'valid/3.test_auprc': valid_auprc,
+                    'valid/4.test_f1': valid_f1,
+                    # 'test/1.test_acc': test_acc,
+                    # 'test/2.test_loss': test_loss,
+                    # 'test/3.test_auprc': test_auprc,
+                    # 'test/4.test_f1': test_f1
+                    })
+
                 wandb.run.summary["test_best_loss"] = test_loss  
                 wandb.run.summary["test_best_auprc"] = test_auprc  
                 wandb.run.summary["test_best_f1_max"] = best_test_f1
                 wandb.run.summary["test_best_f1"] = test_f1  
 
-                wandb.log({f"conf_mat_{epoch}" :
-                    wandb.plot.confusion_matrix(
-                        probs=None,
-                        y_true=total_reals,
-                        preds=total_preds,
-                        class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                    }
-                )
+                if test_f1 > 0.7:
+                    wandb.log({f"conf_mat_{epoch}" :
+                        wandb.plot.confusion_matrix(
+                            probs=None,
+                            y_true=total_reals,
+                            preds=total_preds,
+                            class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                        }
+                    )
             
             model_to_save = model.module if hasattr(model, "module") else model
             if args.use_ema:
@@ -447,7 +450,7 @@ def evaluate(args, loader, model, valid_f1=None):
     # total_preds, total_reals
     # WM811K.label2idx  -> 이 데이터 조회
 
-    if args.wandb:
+    if args.wandb and valid_f1 is not None:  # test 데이터셋에 한해서만 
         preds = np.asarray(total_preds[total_preds!=total_reals]) 
         reals = np.asarray(total_reals[total_preds!=total_reals])
         images = np.asarray(total_images[total_preds!=total_reals])
@@ -467,6 +470,5 @@ def evaluate(args, loader, model, valid_f1=None):
 if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
-    args.device_id = os.environ['CUDA_VISIBLE_DEVICES']
-    print(f"GPU of {args.device_id} Device ID is training...")
+    check_args(args)
     main(0, args)  # single machine, single gpu

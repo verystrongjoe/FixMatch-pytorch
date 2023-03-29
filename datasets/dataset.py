@@ -66,11 +66,9 @@ class WM811K(Dataset):
             assert self.args.num_classes == 9
             assert WM811K.num_classes == 9
 
-        
         targets = [self.label2idx[l] for l in labels]                                # Convert class label strings to integer target values
         
-        
-        if self.args.proportion != 1.:  
+        if self.args.proportion != 1. and kwargs['phrase'] == 'train':
             X_train, X_test, y_train, y_test = train_test_split(
                 images, targets, train_size=int(len(targets)*self.args.proportion), stratify=targets,
                 shuffle=True,random_state=1993 + self.args.seed)
@@ -147,12 +145,6 @@ class WM811KUnlabled(Dataset):
         else:
             saliency_maps = np.asarray(['' for image in images])
 
-        if self.args.proportion != 1.:  
-            X_train, _, y_train, _ = train_test_split(
-                images, saliency_maps, train_size=int(len(saliency_maps)*self.args.proportion), shuffle=True, random_state=1993 + self.args.seed)
-            images = X_train
-            saliency_maps = y_train
-
         self.samples = list(zip(images, saliency_maps))  # Make (path, target) pairs
 
     def __getitem__(self, idx):
@@ -162,7 +154,7 @@ class WM811KUnlabled(Dataset):
         weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
 
         # caption 앞에 파일 경로 추가        
-        return (weak, strong, path+caption, saliency_map), []
+        return weak, strong, path+caption, saliency_map
 
     def __len__(self):
         return len(self.samples)
@@ -248,17 +240,21 @@ class WM811KSaliency(Dataset):
 
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
+        'phrase': 'train',
         'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='weak'),
         'args': args
     }
     train_unlabeld_data_kwargs = {
+        'phrase': 'train',
         'transform': TransformFixMatchWafer(args),
         'args': args,
     }
     test_data_kwargs = {
+        'phrase': 'test',
         'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
         'args': args,
     }
+
     train_labeled_dataset = WM811K('./data/wm811k/labeled/train/', **train_labeld_data_kwargs)
     train_unlabeled_dataset = WM811KUnlabled('./data/wm811k/unlabeled/train/', **train_unlabeld_data_kwargs)
     valid_dataset = WM811K('./data/wm811k/labeled/valid/', **test_data_kwargs)  # it is same as test dataset.

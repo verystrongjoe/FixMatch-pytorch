@@ -1,6 +1,6 @@
 proportion=0.05
-epoch=500
-lr=0.005
+epoch=200
+lr=0.007
 arch=alexnet
 
 gpu_0_0="MIG-4e9bdbba-d0ea-5377-ae8a-a78ccab2f5e5"
@@ -27,7 +27,7 @@ do
             do
                 for m in 3 10:
                 do
-                  #  CUDA_VISIBLE_DEVICES=$gpuno1 python -m train --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
+                    CUDA_VISIBLE_DEVICES=$gpuno1 python -m train --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
                     CUDA_VISIBLE_DEVICES=$gpuno1 python -m train --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn         --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
                 done
             done
