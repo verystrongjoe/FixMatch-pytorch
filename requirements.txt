@@ -6,3 +6,4 @@ opencv-python
 wandb
 torchmetrics
 torchsampler
+colorama
