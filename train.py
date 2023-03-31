@@ -21,6 +21,8 @@ import yaml
 from argparse import Namespace
 from PIL import Image
 import collections
+import pandas as pd
+from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
 best_valid_f1 = 0
@@ -282,6 +284,22 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
+
+        wandb.log({
+            'train/1.loss': losses.avg,
+            'train/2.loss_x': losses_x.avg,
+            'train/3.loss_u': losses_u.avg,
+            'train/4.mask': masks.sum,
+            'train/4.mask_prop': (masks.sum/count.sum)*100,
+            'valid/1.acc': valid_acc,
+            'valid/2.loss': valid_loss,
+            'valid/3.auprc': valid_auprc,
+            'valid/4.f1': valid_f1,
+            # 'test/1.test_acc': test_acc,
+            # 'test/2.test_loss': test_loss,
+            # 'test/3.test_auprc': test_auprc,
+            # 'test/4.test_f1': test_f1
+            })
  
         if is_best:  # save best f1
             test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
@@ -304,22 +322,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                     final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
                     three_images = wandb.Image(three_images, caption=final_caption)
                     wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-            
-                wandb.log({
-                    'train/1.train_loss': losses.avg,
-                    'train/2.train_loss_x': losses_x.avg,
-                    'train/3.train_loss_u': losses_u.avg,
-                    'train/4.mask': masks.sum,
-                    'train/4.mask_prop': (masks.sum/count.sum)*100,
-                    'valid/1.test_acc': valid_acc,
-                    'valid/2.test_loss': valid_loss,
-                    'valid/3.test_auprc': valid_auprc,
-                    'valid/4.test_f1': valid_f1,
-                    # 'test/1.test_acc': test_acc,
-                    # 'test/2.test_loss': test_loss,
-                    # 'test/3.test_auprc': test_auprc,
-                    # 'test/4.test_f1': test_f1
-                    })
 
                 wandb.run.summary["test_best_loss"] = test_loss  
                 wandb.run.summary["test_best_auprc"] = test_auprc  
@@ -429,27 +431,17 @@ def evaluate(args, loader, model, valid_f1=None):
         logger.info("f1 score (torchmetrics) batch avg : {:.2f}".format(f1s.avg))
         logger.info("f1 score (torchmetrics) total : {:.2f}".format( f1_score(y_true=torch.tensor(total_reals), y_pred=torch.tensor(total_preds), average='macro')) )
         logger.info("f1: {:.2f}".format(f1_score(y_true=total_reals, y_pred=total_preds, average='macro')))
-
-        """
-        pd.Series(total_reals).value_counts()
-        8    1474
-        3      97
-        2      52
-        0      43
-        4      36
-        6      12
-        5       9
-        1       5
-        7       1
         
-        pd.Series(total_preds).value_counts()
-        3    1729
-        dtype: int64
-        """
-    
-    # total_preds, total_reals
-    # WM811K.label2idx  -> 이 데이터 조회
+        df_total_preds = pd.Series(total_preds).value_counts()
+        df_total_preds = df_total_preds.rename(index=dict(zip(list(range(10)), WM811K.idx2label)))
+        df_total_reals = pd.Series(total_reals).value_counts()
+        df_total_reals = df_total_reals.rename(index=dict(zip(list(range(10)), WM811K.idx2label)))
 
+        logger.info("======================= total_reals ======================")
+        logger.info(df_total_preds)
+        logger.info("======================= total_preds ======================")
+        logger.info(df_total_reals)
+    
     if args.wandb and valid_f1 is not None:  # test 데이터셋에 한해서만 
         preds = np.asarray(total_preds[total_preds!=total_reals]) 
         reals = np.asarray(total_reals[total_preds!=total_reals])
