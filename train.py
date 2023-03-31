@@ -22,7 +22,7 @@ from argparse import Namespace
 from PIL import Image
 import collections
 import pandas as pd
-from tabulate import tabulate
+# from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
 best_valid_f1 = 0
@@ -231,6 +231,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
+
+            print(f"{logits.min()}/{logits.max()}")
+            
             logits_x = logits[:batch_size]
             logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
             del logits
@@ -437,9 +440,9 @@ def evaluate(args, loader, model, valid_f1=None):
         df_total_reals = pd.Series(total_reals).value_counts()
         df_total_reals = df_total_reals.rename(index=dict(zip(list(range(10)), WM811K.idx2label)))
 
-        logger.info("======================= total_reals ======================")
-        logger.info(df_total_preds)
         logger.info("======================= total_preds ======================")
+        logger.info(df_total_preds)
+        logger.info("======================= total_reals ======================")
         logger.info(df_total_reals)
     
     if args.wandb and valid_f1 is not None:  # test 데이터셋에 한해서만 

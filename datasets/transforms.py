@@ -124,6 +124,79 @@ class WM811KTransform(object):
         return transform
 
 
+class WM811KTransformOnlyOne(object):
+    """Transformations for wafer bin maps from WM-811K."""
+    def __init__(self,
+                 args,
+                 mode,
+                 magnitude,
+                 saliency_map,
+                 **kwargs
+                 ):
+        size = (args.size_xy, args.size_xy)
+        _transforms = []
+        resize_transform = A.Resize(*size, interpolation=cv2.INTER_NEAREST, always_apply=True)
+        _transforms.append(resize_transform)
+        self.mode = mode
+        self.magnitude = magnitude
+        ############################################################################################################################################
+        if mode == 'cutout':
+            num_holes: int = int(5 * magnitude) + 1
+            cutout_size = max(int((args.size_xy/5)/100 * magnitude) + 1, int((args.size_xy/5)))  # max 20% ratio
+            cutout_fill_value = 1
+            _transforms.append(ToWBM())
+            if args.keep:
+                _transforms.append(
+                    KeepCutout(args=args, saliency_map=saliency_map, num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, 
+                                fill_value=cutout_fill_value, p=1.0)
+                )
+            else:
+                _transforms.append(
+                    A.Cutout(num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, fill_value=cutout_fill_value, p=1.0)
+                )
+        elif mode == 'noise':
+            range_magnitude = (0., 0.20)  #TODO: noise min, max 지정
+            final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
+            _transforms.append(ToWBM())
+            _transforms.append(MaskedBernoulliNoise(noise=final_magnitude))
+        # crop, rotate, shift
+        elif mode == 'crop':
+            range_magnitude = (0.7, 1.0)  # scale  # cropout min, max 범위 지정
+            """
+            (200, 200)은 출력할 size를 조정해주는 부분이다. scale(0.1, 1)은 면적의 비율 0.1~1 (10%~100%)를 무작위로 자르게 된다. ratio(0.5, 2)은 면적의 너비와 높이의 비율 0.5~2를 무작위로 조절한다.
+            """
+            # final_magnitude = (range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0]
+            scale = (0.5, 1.0)  # WaPIRL
+            ratio = (0.9, 1.1)  # WaPIRL
+            _transforms.append(A.RandomResizedCrop(*size, scale=(0.7, 0.9), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),)
+
+        elif mode == 'cutout':
+            num_holes: int = 1 + int(5 * magnitude)  # WaPIRL 기본 셋팅 4
+            _transforms.append(
+                A.Cutout(num_holes=num_holes, max_h_size=cutout_size, max_w_size=cutout_size, fill_value=cutout_fill_value, p=1.0)
+            )
+        elif mode == 'rotate':
+            _transforms.append(A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),)
+        elif mode == 'shift':
+            range_magnitude = (0, 0.25)  #  shift min, max 범위 지정
+            final_magnitude = int((range_magnitude[1] - range_magnitude[0]) * magnitude + range_magnitude[0])
+            _transforms.append(A.ShiftScaleRotate(
+            shift_limit=final_magnitude,
+            scale_limit=0,
+            rotate_limit=0,
+            interpolation=cv2.INTER_NEAREST,
+            border_mode=cv2.BORDER_CONSTANT,
+            value=0,
+            p=1.0
+            ),)
+        ############################################################################################################################################        
+        _transforms.append(ToWBM())
+        self.transform = A.Compose(_transforms)
+
+    def __call__(self, img):
+        return self.transform(image=img)['image']
+
+
 class WM811KTransformMultiple(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
@@ -138,8 +211,6 @@ class WM811KTransformMultiple(object):
 
         self.modes = []
         self.magnitudes = []
-        
-        
        
         # generate modes and magnitudes
         for i in range(args.n_weaks_combinations):
@@ -281,6 +352,41 @@ class TransformFixMatchWafer(object):
         strong_trans = WM811KTransformMultiple(self.args, saliency_map)
         strong, caption = strong_trans(basic['image'])
         return weak, strong, caption
+
+
+class TransformFixMatchWaferEval(object):
+    def __init__(self, args, mode, magnitude):
+        self.weak = A.Compose([
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),  
+            ToWBM()
+        ])
+
+        self.basic = A.Compose([
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),  
+        ])
+
+        if args.keep:
+            t_prop = args.proportion if args.fix_keep_proportion < 0. else args.fix_keep_proportion
+            checkpoint = torch.load(f'results/wm811k-supervised-{t_prop}/model_best.pth.tar')
+            print(f"we get sailency map from the pretrained model with accruacy of {checkpoint['acc']} and macro f1 score of {checkpoint['best_f1']} and proportion of {t_prop}")
+            args.supervised_model = create_model(args, keep=True)
+            args.supervised_model.load_state_dict(checkpoint['state_dict'])
+        self.args = args
+        self.mode = mode
+        self.magnitude = magnitude
+
+    def __call__(self, x, saliency_map):
+        weak = self.weak(image=x)['image']
+        basic = self.basic(image=x)
+        strong_trans = WM811KTransformOnlyOne(self.args, self.mode, self.magnitude, saliency_map)
+        strong = strong_trans(basic['image'])
+        return weak, strong
+
+
 
 
 class KeepCutout(ImageOnlyTransform):
