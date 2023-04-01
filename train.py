@@ -233,8 +233,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
 
-            print(f"{logits.min()}/{logits.max()}")
-            
             logits_x = logits[:batch_size]
             logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
             del logits
@@ -361,7 +359,7 @@ def evaluate(args, loader, model, valid_f1=None):
 
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
-
+    
     losses = AverageMeter()
     top1s = AverageMeter()
     top3s = AverageMeter()
@@ -408,7 +406,7 @@ def evaluate(args, loader, model, valid_f1=None):
             batch_time.update(time.time() - end)
             end = time.time()
             
-            loader.set_description(f"{'Valid' if valid_f1 is None else 'Test'}" + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {top3:.2f}. f1: {top3:.2f}.".format(
+            loader.set_description(f"{'Valid' if valid_f1 is None else 'Test'}" + " Iter: {batch:4}/{iter:4}. Data: {data:.3f}s. Batch: {bt:.3f}s. Loss: {loss:.4f}. top1: {top1:.2f}. top3: {top3:.2f}. auprc: {auprc:.2f}. f1: {f1:.2f}.".format(
                 batch=batch_idx + 1,
                 iter=len(loader),
                 data=data_time.avg,
@@ -425,13 +423,14 @@ def evaluate(args, loader, model, valid_f1=None):
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
         
-        # if valid_f1 is not None and valid_f1 > best_valid_f1:
-        logger.info("top-1 acc: {:.2f}".format(top1s.avg))
-        logger.info("top-3 acc: {:.2f}".format(top3s.avg))
-        logger.info("auprc: {:.2f}".format(auprcs.avg))
-        logger.info("f1 score (torchmetrics) batch avg : {:.2f}".format(f1s.avg))
-        logger.info("f1 score (torchmetrics) total : {:.2f}".format( f1_score(y_true=torch.tensor(total_reals), y_pred=torch.tensor(total_preds), average='macro')) )
-        logger.info("f1: {:.2f}".format(f1_score(y_true=total_reals, y_pred=total_preds, average='macro')))
+        final_top1_acc, final_top3_acc = accuracy(total_preds, total_reals, topk=(1, 3))
+        final_auprc = fn_auprc(total_preds, total_reals)
+        final_f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
+
+        logger.info("top-1 acc: {:.2f}".format(final_top1_acc))
+        logger.info("top-3 acc: {:.2f}".format(final_top3_acc))
+        logger.info("auprc: {:.2f}".format(final_auprc))
+        logger.info("f1: {:.2f}".format(final_f1))
         
         df_total_preds = pd.Series(total_preds).value_counts()
         df_total_preds = df_total_preds.rename(index=dict(zip(list(range(10)), WM811K.idx2label)))
@@ -457,7 +456,7 @@ def evaluate(args, loader, model, valid_f1=None):
                     wandb_img = wandb.Image(wrong_image.squeeze()*127.5, caption=WM811K.idx2label[wrong_label_idx]) # 96, 96, 1 #inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5
                     wandb.log({f"{label}(real)": wandb_img})
 
-    return losses.avg, top1s.avg, auprcs.avg, f1s.avg, total_reals, total_preds 
+    return losses.avg, final_top1_acc, final_auprc, final_f1, total_reals, total_preds 
 
 
 if __name__ == '__main__':
