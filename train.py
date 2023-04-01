@@ -213,7 +213,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         masks = AverageMeter()
         count = AverageMeter()
         p_bar = tqdm((unlabeled_trainloader))
-       
+
+        model.train()
         for batch_idx, (inputs_u_w, inputs_u_s, caption, saliency_map) in enumerate(unlabeled_trainloader):
             try:
                 (inputs_x, targets_x) = next(labeled_iter)
@@ -279,12 +280,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             )
             p_bar.update()
 
-        # if args.use_ema:
-        #     test_model = ema_model.ema
-        # else:
-        #     test_model = model
+        model.eval()
 
-        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
+        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, model)
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
 
@@ -305,7 +303,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             })
  
         if is_best:  # save best f1
-            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, test_model, valid_f1=valid_f1)
+            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, model, valid_f1=valid_f1)
             best_test_f1 = max(test_f1, best_test_f1)            
             
             if args.wandb:
