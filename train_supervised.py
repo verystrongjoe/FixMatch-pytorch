@@ -33,19 +33,15 @@ best_f1 = 0
 
 
 def prerequisite(args):
-    args.world_size = 1
     args.n_gpu = torch.cuda.device_count()
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S",
                         level=logging.INFO)
-
     if not args.wandb:
         wandb_mode = 'disabled'
     else:
         wandb_mode = 'online'
-
     
-    run_name = f"arch_{args.arch}_proportion_{args.proportion}_n_{args.n_weaks_combinations}_tau_{args.threshold}_keep_{args.keep}"
-
+    run_name = f"arch_{args.arch}_proportion_{args.proportion}_supervised"
     # set wandb
     wandb.init(project=args.project_name, config=args, mode=wandb_mode)
     wandb.run.name = run_name
@@ -80,37 +76,12 @@ def main():
     best_f1 = 0
     args = get_args()
     prerequisite(args)
-
-    if args.world_size > 1:
-        mp.spawn(
-            main_worker,
-            nprocs=args.num_gpus_per_node,
-            args=(args, )
-        )
-    else:
-        main_worker(0, args)
+    main_worker(0, args)
 
 
 def main_worker(local_rank: int, args: object):
     torch.cuda.set_device(local_rank)
-
-    if args.world_size > 1:
-        dist_rank = args.node_rank * args.num_gpus_per_node + local_rank
-        dist.init_process_group(
-            backend=args.dist_backend,
-            init_method=args.dist_url,  # todo : 파악하기
-            world_size=args.world_size,
-            rank=dist_rank,
-        )
-
-    args.batch_size = args.batch_size // args.world_size
-    args.num_workers = args.num_workers // args.world_size
-    args.local_rank = local_rank
-
-    if args.local_rank == 0:
-        args.logger = logging.getLogger(__name__)
-    else:
-        args.logger = None
+    args.logger = logging.getLogger(__name__)
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
 
@@ -121,13 +92,6 @@ def main_worker(local_rank: int, args: object):
                       num_workers=args.num_workers,
                       drop_last=True,
                       pin_memory=True)
-
-    unlabeled_trainloader = DataLoader(
-        unlabeled_dataset,
-        sampler=RandomSampler(unlabeled_dataset),
-        batch_size=args.batch_size*args.mu,
-        num_workers=args.num_workers,
-        drop_last=True)
 
     valid_loader = DataLoader(
         valid_dataset,
@@ -142,11 +106,7 @@ def main_worker(local_rank: int, args: object):
         num_workers=args.num_workers)
 
     model = create_model(args)
-
-    if args.n_gpu > 1:
-        model = torch.nn.DataParallel(model, device_ids=[args.local_rank])
-    else:
-        model.to(args.local_rank)
+    model.to(args.local_rank)
 
     no_decay = ['bias', 'bn']
     grouped_parameters = [
@@ -173,42 +133,20 @@ def main_worker(local_rank: int, args: object):
         ema_model = ModelEMA(args, model, args.ema_decay)
     args.start_epoch = 0
 
-    if args.resume:
-        args.logger.info("==> Resuming from checkpoint..")
-        assert os.path.isfile(
-            args.resume), "Error: no checkpoint directory found!"
-        args.out = os.path.dirname(args.resume)
-        checkpoint = torch.load(args.resume)
-        best_f1 = checkpoint['best_f1']
-        args.start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        if args.use_ema:
-            ema_model.ema.load_state_dict(checkpoint['ema_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        scheduler.load_state_dict(checkpoint['scheduler'])
-
     args.logger.info("***** Running training *****")
     args.logger.info(f"  Task = {args.dataset}@{args.proportion}")
     args.logger.info(f"  Num Epochs = {args.epochs}")
     args.logger.info(f"  Batch size per GPU = {args.batch_size}")
     args.logger.info(f"  Total train batch size = {args.batch_size * args.world_size}")
     args.logger.info(f"  Total optimization steps = {total_steps}")
-
     model.zero_grad()
-    train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
+    train(args, labeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler)
 
 
-def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
-          model, optimizer, ema_model, scheduler):
+def train(args, labeled_trainloader, valid_loader, test_loader, model, optimizer, ema_model, scheduler):
     global best_f1
     end = time.time()
-
-    if args.world_size > 1:
-        labeled_epoch = 0
-        labeled_trainloader.sampler.set_epoch(labeled_epoch)
-
-    labeled_iter = iter(labeled_trainloader)
 
     for epoch in range(args.start_epoch, args.epochs):
         batch_time = AverageMeter()
@@ -217,19 +155,8 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         p_bar = tqdm(range(len(labeled_trainloader)))
 
-        for batch_idx in range(len(labeled_trainloader)):
-            try:
-                inputs_x, targets_x = next(labeled_iter)
-            except:
-                if args.world_size > 1:
-                    labeled_epoch += 1
-                    labeled_trainloader.sampler.set_epoch(labeled_epoch)
-                labeled_iter = iter(labeled_trainloader)
-                args.logger.info('train labeled dataset iter is reset.')
-                inputs_x, targets_x = next(labeled_iter)
-
+        for batch_idx, (inputs_x, targets_x) in enumerate(labeled_trainloader):
             data_time.update(time.time() - end)
-            batch_size = inputs_x.shape[0]
             targets_x = targets_x.to(args.local_rank)
             inputs_x = inputs_x.to(args.local_rank)
 
@@ -239,8 +166,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             loss = F.cross_entropy(logits, targets_x.long(), reduction='mean')
             loss.backward()
             losses.update(loss.item())
+            
             optimizer.step()
             scheduler.step()
+            
             if args.use_ema:
                 ema_model.update(model)
             model.zero_grad()

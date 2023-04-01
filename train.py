@@ -279,10 +279,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             )
             p_bar.update()
 
-        if args.use_ema:
-            test_model = ema_model.ema
-        else:
-            test_model = model
+        # if args.use_ema:
+        #     test_model = ema_model.ema
+        # else:
+        #     test_model = model
 
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, test_model)
         is_best = valid_f1 > best_valid_f1
