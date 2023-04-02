@@ -4,6 +4,7 @@
 epoch=200
 lr=0.005
 arch=resnet18
+limit_unlabled=200000
 proportion=0.05
 aug_types="crop, cutout, noise, rotate, shift"                   # 'crop','cutout','noise','rotate','shift'
 
@@ -16,20 +17,22 @@ gpu_2_1="MIG-21d343f4-de6e-5d44-9774-e2f3dbab968d"
 gpu_3_0="MIG-0b2452d4-9b27-530f-a6f1-1c2d05dfaa72"
 gpu_3_1="MIG-e46a8085-268f-5417-8e5a-a9e20578424d"
 
-pn=wm-$arch-lr-$lr-prop-$proportion-epoch-$epoch
+pn_main=wm2
+pn=$pn_main-$limit_unlabled-$arch-lr-$lr-prop-$proportion-epoch-$epoch
+
 
 for n in 2 5
 do 
     for th in 0.95
     do
-        for l in 0.5 5
+        for l in 0.5
         do 
             for t in 0.3
             do
                 for m in 5
                 do
-                    CUDA_VISIBLE_DEVICES=0 python -m train --aug_types $aug_types --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
-                    CUDA_VISIBLE_DEVICES=0 python -m train --aug_types $aug_types --mu $m --lambda-u $l --nm-optim adamw --epochs $epoch --tau $t --gpus 1 --project-name $pn         --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
+                    CUDA_VISIBLE_DEVICES=1 python -m train --limit-unlabled $limit_unlabled --aug_types $aug_types --mu $m --lambda-u $l --nm-optim sgd --epochs $epoch --tau $t --gpus 1 --project-name $pn  --keep --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
+                    CUDA_VISIBLE_DEVICES=1 python -m train --limit-unlabled $limit_unlabled --aug_types $aug_types --mu $m --lambda-u $l --nm-optim sgd --epochs $epoch --tau $t --gpus 1 --project-name $pn         --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $proportion --arch $arch --batch-size 256 --lr $lr --seed 1234
                 done
             done
         done
