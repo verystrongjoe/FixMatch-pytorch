@@ -30,7 +30,11 @@ def get_mean_and_std(dataset):
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
     maxk = max(topk)
-    batch_size = target.size(0)
+    
+    try:
+        batch_size = target.shape[0]
+    except:
+        batch_size = target.size(0)
 
     _, pred = output.topk(maxk, 1, True, True)
     pred = pred.t()

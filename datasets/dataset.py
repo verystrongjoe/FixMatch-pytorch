@@ -241,6 +241,12 @@ class WM811KUnlabled(Dataset):
         self.args = kwargs.get('args', 0)
 
         images = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
+        
+        if self.args.limit_unlabled != -1: 
+            assert self.args.limit_unlabled > 0
+            print(f"we are using {self.args.limit_unlabled} unlabeled data samples..")
+            images = images[:self.args.limit_unlabled]
+        
         if self.args.keep:
             saliency_maps = np.asarray([image.replace('.png', f'_saliency_{self.args.proportion if self.args.fix_keep_proportion < 0 else self.args.fix_keep_proportion}.npy') for image in images])
         else:

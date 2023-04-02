@@ -23,6 +23,10 @@ from PIL import Image
 import collections
 import pandas as pd
 # from tabulate import tabulate
+from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 logger = logging.getLogger(__name__)
 best_valid_f1 = 0
@@ -280,11 +284,15 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
         model.eval()
 
-        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(args, valid_loader, model)
+        valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(epoch, args, valid_loader, model)
+        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)
+
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
-
+        best_test_f1 = max(test_f1, best_test_f1)
+        
         wandb.log({
+            'epoch': epoch,
             'train/1.loss': losses.avg,
             'train/2.loss_x': losses_x.avg,
             'train/3.loss_u': losses_u.avg,
@@ -294,49 +302,63 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'valid/2.loss': valid_loss,
             'valid/3.auprc': valid_auprc,
             'valid/4.f1': valid_f1,
-            # 'test/1.test_acc': test_acc,
-            # 'test/2.test_loss': test_loss,
-            # 'test/3.test_auprc': test_auprc,
-            # 'test/4.test_f1': test_f1
+            'test/1.test_acc': test_acc,
+            'test/2.test_loss': test_loss,
+            'test/3.test_auprc': test_auprc,
+            'test/4.test_f1': test_f1
             })
  
         if is_best:  # save best f1
-            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(args, test_loader, model, valid_f1=valid_f1)
-            best_test_f1 = max(test_f1, best_test_f1)            
+            wandb.run.summary["test_best_f1"] = best_test_f1
+        
+        if test_f1 > 0.5:
+            saving_path = os.path.join(args.out, str(epoch))
+            os.makedirs(saving_path, exist_ok=True)
             
-            if args.wandb:
-                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
-                if len(idxes) > 0:
-                    sample_idx = np.random.choice(np.asarray(idxes))
-                    weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                    strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                    h, w = weak_image.shape[0], weak_image.shape[0]
-                    three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                    three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                    three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                    if args.keep:
-                        three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                    else:
-                        three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                    final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                    three_images = wandb.Image(three_images, caption=final_caption)
-                    wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+            # 수도레이블 선정된 것들 인덱스 취해서..
+            idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
+            # 모든 수도레이블(레이블이 없는 상태인 -를 제외하고 0~8 값을 다 하나씩 인덱스를 뽑아서 저장)
+            if len(set(targets_u[idxes])) == args.num_classes:
+                flags = [False for i in range(args.num_classes)]
+                for sample_idx, ul in zip(idxes, targets_u[idxes]):
+                    if not flags[ul]:
+                        flags[ul] = True
+                        weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                        strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                        h, w = weak_image.shape[0], weak_image.shape[0]
+                        three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                        three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                        three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                        if args.keep:
+                            three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                        else:
+                            three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                        final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                        # three_images = wandb.Image(three_images, caption=final_caption)
+                        # wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+                        three_images.save(os.path.join(saving_path, f'{WM811K.idx2label[targets_u[sample_idx]]}_{final_caption}.png'))
 
-                wandb.run.summary["test_best_loss"] = test_loss  
-                wandb.run.summary["test_best_auprc"] = test_auprc  
-                wandb.run.summary["test_best_f1_max"] = best_test_f1
-                wandb.run.summary["test_best_f1"] = test_f1  
+                # wandb.log({f"conf_mat_{epoch}" :
+                #     wandb.plot.confusion_matrix(
+                #         probs=None,
+                #         y_true=total_reals,
+                #         preds=total_preds,
+                #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                #     }
+                # )
+                cm = confusion_matrix(total_reals, total_preds, labels=list(range(args.num_classes)))
+                # plot confusion matrix using seaborn heatmap
+                labels = np.asarray(WM811K.idx2label)[:args.num_classes]
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
 
-                if test_f1 > 0.7:
-                    wandb.log({f"conf_mat_{epoch}" :
-                        wandb.plot.confusion_matrix(
-                            probs=None,
-                            y_true=total_reals,
-                            preds=total_preds,
-                            class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                        }
-                    )
-            
+                # set plot labels and title
+                plt.xlabel("Predicted label")
+                plt.ylabel("True label")
+                plt.title("Confusion Matrix")
+
+                # show plot
+                plt.savefig(os.path.join(saving_path, 'confusion.png'))
+        
             model_to_save = model.module if hasattr(model, "module") else model
             if args.use_ema:
                 ema_to_save = ema_model.ema.module if hasattr(
@@ -355,7 +377,7 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
-def evaluate(args, loader, model, valid_f1=None):
+def evaluate(epoch, args, loader, model, valid_f1=None):
 
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
@@ -422,14 +444,12 @@ def evaluate(args, loader, model, valid_f1=None):
         total_images = np.concatenate(total_images)    
         total_preds = np.concatenate(total_preds)
         total_reals = np.concatenate(total_reals)   
-        
-        final_top1_acc, final_top3_acc = accuracy(total_preds, total_reals, topk=(1, 3))
-        final_auprc = fn_auprc(total_preds, total_reals)
+
         final_f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
 
-        logger.info("top-1 acc: {:.2f}".format(final_top1_acc))
-        logger.info("top-3 acc: {:.2f}".format(final_top3_acc))
-        logger.info("auprc: {:.2f}".format(final_auprc))
+        logger.info("top-1 acc: {:.2f}".format(top1s.avg))
+        logger.info("top-3 acc: {:.2f}".format(top3s.avg))
+        logger.info("auprc: {:.2f}".format(auprcs.avg))
         logger.info("f1: {:.2f}".format(final_f1))
         
         df_total_preds = pd.Series(total_preds).value_counts()
@@ -442,21 +462,23 @@ def evaluate(args, loader, model, valid_f1=None):
         logger.info("======================= total_reals ======================")
         logger.info(df_total_reals)
     
-    if args.wandb and valid_f1 is not None:  # test 데이터셋에 한해서만 
+    if valid_f1 is not None and valid_f1 > 0.5:  # test 데이터셋에 한해서만 
         preds = np.asarray(total_preds[total_preds!=total_reals]) 
         reals = np.asarray(total_reals[total_preds!=total_reals])
         images = np.asarray(total_images[total_preds!=total_reals])
         
         for label_idx in range(len(WM811K.idx2label)): # remove unknown
             label = WM811K.idx2label[label_idx]
+            saving_path = os.path.join(args.out, str(epoch), 'wrong_predicted', label)
+            os.makedirs(saving_path, exist_ok=True)
             if label != '-':
                 wrong_images = images[reals==label_idx] 
                 wrong_labels_idxes = preds[reals==label_idx]
-                for wrong_label_idx, wrong_image in zip(wrong_labels_idxes, wrong_images):
-                    wandb_img = wandb.Image(wrong_image.squeeze()*127.5, caption=WM811K.idx2label[wrong_label_idx]) # 96, 96, 1 #inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5
-                    wandb.log({f"{label}(real)": wandb_img})
+                for num, (wrong_label_idx, wrong_image) in enumerate(zip(wrong_labels_idxes, wrong_images)):
+                    img = Image.fromarray((wrong_image.squeeze()*127.5).astype(np.uint8))
+                    img.save(os.path.join(saving_path, f"{WM811K.idx2label[wrong_label_idx]}_{str(num)}.png" )) 
 
-    return losses.avg, final_top1_acc, final_auprc, final_f1, total_reals, total_preds 
+    return losses.avg, top1s.avg, auprcs.avg, final_f1, total_reals, total_preds 
 
 
 if __name__ == '__main__':

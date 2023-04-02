@@ -92,6 +92,8 @@ def get_args():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--sweep', action='store_true')
     parser.add_argument('--exclude-none', action='store_true', default=False)
+    parser.add_argument('--limit-unlabled', type=int, default=20000)
+
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
