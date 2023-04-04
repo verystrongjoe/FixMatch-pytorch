@@ -244,7 +244,7 @@ class WM811KUnlabled(Dataset):
         
         if self.args.limit_unlabled != -1: 
             assert self.args.limit_unlabled > 0
-            print(f"we are using {self.args.limit_unlabled} unlabeled data samples..")
+            print(f"we are using {self.args.limit_unlabled} unlabeled data sampele")
             images = images[:self.args.limit_unlabled]
         
         if self.args.keep:

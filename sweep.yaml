@@ -4,19 +4,19 @@ method: random
 name: sweep
 metric:
   goal: maximize
-  name: test_best_f1_max
+  name: test_best_f1
 command:
   - ${env}
   - ${interpreter}
   - ${program}
   - "--project-name"
-  - "waferfix-sweep-final"
+  - "waferfix-sweep"
   - "--gpus"
   - "0"
   - "--sweep"
   - "--wandb"
   - "--epochs"
-  - "1800"
+  - "100"
 parameters:
   seed:
     value: 1234
@@ -25,20 +25,35 @@ parameters:
   n-weaks-combinations: 
     values: [2, 3, 4, 5, 6]
   tau:
-    min: 0.1
-    max: 0.6
+    min: 0.3
+    max: 0.5
   threshold:
-    min: 0.5
+    min: 0.8
     max: 0.95
   lambda-u:
-    min: 1
-    max: 10
+    min: 0.1
+    max: 3.0
   mu:
-    min: 1
-    max: 20
+    min: 3
+    max: 7
   nm-optim:
     values: ["adamw", "sgd"]
   keep:
     values:
       - True
       - False
+  limit_unlabled: # 638,507
+    values:
+      - 100000 
+      - 300000
+  lr:
+    values:
+      - 0.002
+      - 0.005
+
+lr=0.005
+arch=resnet18
+limit_unlabled=100000
+proportion=0.05
+aug_types="crop, cutout, noise, rotate, shift"                   # 'crop','cutout','noise','rotate','shift'
+

@@ -37,7 +37,6 @@ def prerequisite(args):
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
     args.logger = logger
-    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"
 
     if not args.wandb:
         wandb_mode = 'disabled'
@@ -53,7 +52,9 @@ def prerequisite(args):
             try:
                 with open('./sweep.yaml') as file:
                     config = yaml.load(file, Loader=yaml.FullLoader)            
+                    
                     wandb.config.update(config)
+                    
                     args.proportion = wandb.config.proportion
                     args.n_weaks_combinations = wandb.config.n_weaks_combinations
                     args.tau = wandb.config.tau
@@ -63,9 +64,19 @@ def prerequisite(args):
                     args.nm_optim = wandb.config.nm_optim
                     args.seed = wandb.config.seed
                     args.keep = wandb.config.keep
+                    
+                    for k in wandb.config.keys():
+                        if k in args.keys():
+                            args[k] = wandb.config[k]  # sweep agent decide paramters 
+                    args.logger.info(f"sweep configuraion is loaded.")
+                    args.logger.info(config)
+                    args.logger.info(f"sweep configuraion is set.")
+                    args.logger.info(args)
             except:
                 args.logger.warn('there is no sweep yaml.')             
-        wandb.run.name = run_name
+    
+    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"                
+    wandb.run.name = run_name
     
     if args.seed is not None:
         set_seed(args)
