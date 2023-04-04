@@ -18,8 +18,10 @@ command:
   - "--wandb"
   - "--epochs"
   - "100"
-  - "arch"
+  - "--arch"
   - "resnet18"
+  - "--batch-size"
+  - "256"
 parameters:
   seed:
     value: 1234
