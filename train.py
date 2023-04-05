@@ -45,37 +45,40 @@ def prerequisite(args):
     else:
         wandb_mode = 'online'
         args.logger.info('wandb enabled.')
+
         # set wandb
-        wandb.init(project=args.project_name, config=args, mode=wandb_mode)
+        # wandb.init(project=args.project_name, mode=wandb_mode)
+        with open('sweep.yaml') as file:
+            config = yaml.load(file, Loader=yaml.FullLoader)
+        wandb.init(project=args.project_name, mode=wandb_mode, config=config)
+
+
+        args.logger.info(f"sweep configuraion is loaded.")
+        args.logger.info(wandb.config)
+
         if args.sweep:
             args.logger.info('existing confiuguration will be replaced by sweep yaml.')
             try:
-                with open('./sweep.yaml') as file:
-                    config = yaml.load(file, Loader=yaml.FullLoader)            
-                    
-                    wandb.config.update(config)
-                    
-                    args.proportion = wandb.config.proportion
-                    args.n_weaks_combinations = wandb.config.n_weaks_combinations
-                    args.tau = wandb.config.tau
-                    args.threshold = wandb.config.threshold
-                    args.lambda_u = wandb.config.lambda_u
-                    args.mu = wandb.config.mu
-                    args.nm_optim = wandb.config.nm_optim
-                    args.seed = wandb.config.seed
-                    args.keep = wandb.config.keep
-                    
-                    for k in wandb.config.keys():
-                        if k in args.keys():
-                            args[k] = wandb.config[k]  # sweep agent decide paramters 
-                    args.logger.info(f"sweep configuraion is loaded.")
-                    args.logger.info(config)
-                    args.logger.info(f"sweep configuraion is set.")
-                    args.logger.info(args)
-            except:
-                args.logger.warn('there is no sweep yaml.')             
-    
-    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau}_th_{args.threshold}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}"                
+                args.seed = wandb.config.seed                                   # 1
+                args.proportion = wandb.config.proportion                       # 2 
+                args.n_weaks_combinations = wandb.config.n_weaks_combinations   # 3  
+                args.tau = wandb.config.tau                                     # 4 
+                args.threshold = wandb.config.threshold                         # 5 
+                args.lambda_u = wandb.config.lambda_u                           # 6
+                args.mu = wandb.config.mu                                       # 7
+                args.nm_optim = wandb.config.nm_optim                           # 8   
+                args.keep = wandb.config.keep                                   # 9 
+                args.limit_unlabled = wandb.config.limit_unlabled               # 10
+                args.lr = wandb.config.lr                                       # 11
+                args.aug_types = wandb.config['aug_types'].split(',')           # 12
+
+                args.logger.info(f"sweep configuraion is set.")
+                args.logger.info(args)
+            except Exception as e:
+                args.logger.warning('there is no sweep yaml.')             
+                raise e
+                
+    run_name = f"keep_{args.keep}_prop_{args.proportion}_n_{args.n_weaks_combinations}_t_{args.tau:.2f}_th_{args.threshold:.2f}_mu_{args.mu}_l_{args.lambda_u}_op_{args.nm_optim}_arch_{args.arch}_unlabeld_{args.limit_unlabled}"                
     wandb.run.name = run_name
     
     if args.seed is not None:
@@ -496,4 +499,6 @@ if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
     check_args(args)
+
+    
     main(0, args)  # single machine, single gpu
