@@ -175,7 +175,7 @@ def create_model(args, keep=False):
         model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['50'], in_channels=1)
     else:
         raise ValueError('unknown model')
-
+  
     return model
 
 

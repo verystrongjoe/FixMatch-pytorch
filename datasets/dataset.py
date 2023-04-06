@@ -14,6 +14,7 @@ import pathlib
 import cv2
 from sklearn.model_selection import train_test_split
 import pandas as pd
+import random
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,95 @@ cifar100_mean = (0.5071, 0.4867, 0.4408)
 cifar100_std = (0.2675, 0.2565, 0.2761)
 normal_mean = (0.5, 0.5, 0.5)
 normal_std = (0.5, 0.5, 0.5)
+
+
+
+# Ensemble 논문을 위해 추가한 데이터셋
+class WM811KEnsemble(Dataset):
+    label2idx = {
+        'center'    : 0,
+        'donut'     : 1,
+        'edge-loc'  : 2,
+        'edge-ring' : 3,
+        'loc'       : 4,
+        'random'    : 5,
+        'scratch'   : 6,
+        'near-full' : 7,
+        'none'      : 8,
+        '-'         : 9,
+    }
+    
+    idx2label = [k for k in label2idx.keys()]
+    num_classes = len(idx2label) 
+
+    def __init__(self, args, mode='train', type='labeled'): 
+        super(WM811K, self).__init__()
+        self.args = args
+
+        assert mode in ['train', 'valid', 'test']
+        assert type in ['labeled', 'all']
+
+        assert not (mode in ['valid', 'test'] and type == 'all')
+        
+        ##############################################################################################################################
+        # labeled data
+        ##############################################################################################################################
+        lableld_images = glob.glob(os.path.join(f'./data/wm811k/labeled/{mode}/', '**/*.png'), recursive=True)
+        lableld_labels = [pathlib.PurePath(image).parent.name for image in lableld_images]
+        lableld_targets = [self.label2idx[l] for l in lableld_labels] # Convert class label strings to integer target values
+        
+        if mode =='train' and self.args.proportion != 1.:
+            assert self.args.proportion in [0.05, 0.1, 0.25, 0.5, 1.]
+            X_train, X_test, y_train, y_test = train_test_split(
+                lableld_images, lableld_targets, train_size=int(len(lableld_targets)*self.args.proportion), 
+                stratify=lableld_targets, shuffle=True, random_state=1993 + self.args.seed)
+            lableld_images = X_train
+            lableld_targets = y_train
+
+        ##############################################################################################################################
+        # unlabeled data
+        ##############################################################################################################################
+        if mode =='train' and type == 'all':
+            unlabeled_images = glob.glob(os.path.join('./data/wm811k/unlabeled/train/', '**/*.png'), recursive=True)
+
+            # 논문에서 언급한 데로 파라미터는 200,000 images만 뽑도록 되어 있음 (4.3. Experimental setting)
+            if self.args.limit_unlabled != -1: 
+                assert self.args.limit_unlabled > 0
+                # 랜덤 샘플링
+                # unlabeled_images = unlabeled_images[:self.args.limit_unlabled]
+                unlabeled_images = random.sample(unlabeled_images, self.args.limit_unlabled)
+                assert len(unlabeled_images) == self.args.limit_unlabled
+                print(f"we are using {self.args.limit_unlabled} unlabeled data samples..")            
+
+            unlabeled_images = sorted(lableld_images + unlabeled_images)
+            unlabeled_labels = [pathlib.PurePath(image).parent.name for image in unlabeled_images]          # Parent directory names are class label strings
+            unlableld_targets = [self.label2idx[l] for l in unlabeled_labels] # Convert class label strings to integer target values
+
+            assert set(unlableld_targets)[0] == '-' # all labels must be '-'
+
+        if mode == 'train' and type == 'all':
+            self.targets = (lableld_targets + unlableld_targets)
+            self.samples = list(zip(lableld_images + unlabeled_images, lableld_targets + unlableld_targets)) # Make (path, target) pairs
+        else:
+            self.targets = lableld_targets
+            self.samples = list(zip(lableld_images, lableld_targets)) # Make (path, target) pairs
+        
+    def get_labels(self):
+        return self.targets
+
+    def __getitem__(self, idx):
+        path, y = self.samples[idx]
+        x = self.load_image_cv2(path)
+        return x, y
+
+    def __len__(self):
+        return len(self.samples)
+
+    @staticmethod
+    def load_image_cv2(filepath: str):
+        """Load image with cv2. Use with `albumentations`."""
+        out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
+        return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
 
 
 class WM811K(Dataset):
