@@ -162,15 +162,15 @@ if __name__ == '__main__':
     # 지도학습
     ###################################################################################################################    
     #TODO: Table 2 ResNet-10, ResNet-18을 WaPIRL과 비교해야함
-    models, optimizers, schedulers = [], [], []
+    models, optimizers_supervised, schedulers_supervised = [], [], []
 
     for k in range(K):
         m = create_model(args).to(args.local_rank)
         o = optim.SGD(m.parameters(), lr=0.003)
         s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
         models.append(m)
-        optimizers.append(o)
-        schedulers.append(s)
+        optimizers_supervised.append(o)
+        schedulers_supervised.append(s)
 
     for k in range(K):
         for epoch in range(0, epochs_1):
@@ -185,19 +185,22 @@ if __name__ == '__main__':
                 loss = F.cross_entropy(logits, targets_x.long())
                 loss.backward()
                 losses.update(loss.item())
-                optimizers[k].step()
-                schedulers[k].step()
+                optimizers_supervised[k].step()
+                schedulers_supervised[k].step()
                 models[k].zero_grad()
         
-
-
     ###################################################################################################################
     # 준지도 학습
     ###################################################################################################################  
-    optimizer = optim.SGD(model.parameters(), lr=0.003)
-    scheduler = MultiStepLR(optimizer, milestones=[125], gamma=0.1)
-
+    schedulers_semi_supervised = []
+    #TODO: 여기 semi쪽 타는거 optimizer는 공유해도 되는지 확인
+    for k in range(K):
+        s = MultiStepLR(optimizers_supervised[k], milestones=[125], gamma=0.1)
+        schedulers_semi_supervised[s]
+    
     for epoch in range(epochs_2):
+
+        losses = AverageMeter()
         # label + unlabled data 합쳐 mini batch
         for batch_idx, (inputs_x, targets_x) in enumerate(semi_supervised_trainloader):
 
@@ -255,5 +258,10 @@ if __name__ == '__main__':
                 L_k_super = ce(k_logits_l[k], targets_x[flags_labeled])
                 # Compute the cross-entropy loss for semi-supervised
                 L_k_semi = ce(k_logits_u[k], targets_x[flags_labeled]* u_ic)
-                (L_k_super + L_k_semi).backward()
+                L_k = L_k_super + L_k_semi
+                L_k.backward()
+                losses.update(L_k.item())
+                optimizers_supervised[k].step()
+                schedulers_semi_supervised[k].step()
+                models[k].zero_grad()
         
