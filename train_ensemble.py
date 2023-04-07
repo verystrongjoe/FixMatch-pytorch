@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
@@ -102,26 +103,26 @@ def get_args():
     return args
 
 
-class LabelSmoothingLoss(nn.Module):
-    def __init__(self, smoothing=0.0):
-        super(LabelSmoothingLoss, self).__init__()
-        self.smoothing = smoothing
+# class LabelSmoothingLoss(nn.Module):
+#     def __init__(self, smoothing=0.0):
+#         super(LabelSmoothingLoss, self).__init__()
+#         self.smoothing = smoothing
 
-    def forward(self, inputs, targets):
-        n_classes = inputs.size(1)
-        log_preds = F.log_softmax(inputs, dim=1)
-        loss = -log_preds.sum(dim=1)
-        smooth_loss = -log_preds.mean(dim=1)
-        loss = loss.mean()
-        smooth_loss = smooth_loss.mean()
-        loss = (1.0 - self.smoothing) * loss + self.smoothing * smooth_loss
-        return loss
+#     def forward(self, inputs, targets):
+#         n_classes = inputs.size(1)
+#         log_preds = F.log_softmax(inputs, dim=1)
+#         loss = -log_preds.sum(dim=1)
+#         smooth_loss = -log_preds.mean(dim=1)
+#         loss = loss.mean()
+#         smooth_loss = smooth_loss.mean()
+#         loss = (1.0 - self.smoothing) * loss + self.smoothing * smooth_loss
+#         return loss
 
 
-def label_smoothing(label, alpha):
-    n_classes = label.size(1)
-    smooth_label = (1 - alpha) * label + (alpha / (n_classes - 1)) * torch.ones_like(label)
-    return smooth_label
+# def label_smoothing(label, alpha):
+#     n_classes = label.size(1)
+#     smooth_label = (1 - alpha) * label + (alpha / (n_classes - 1)) * torch.ones_like(label)
+#     return smooth_label
 
 if __name__ == '__main__':
 
@@ -161,20 +162,17 @@ if __name__ == '__main__':
     # 지도학습
     ###################################################################################################################    
     #TODO: Table 2 ResNet-10, ResNet-18을 WaPIRL과 비교해야함
-    models, optimizers, schedulers = []
-    for i in range(K):
+    models, optimizers, schedulers = [], [], []
+
+    for k in range(K):
         m = create_model(args)
-        o = optim.SGD(model.parameters(), lr=0.003)
-        s = MultiStepLR(optimizer, milestones=[50, 100], gamma=0.1)
+        o = optim.SGD(m.parameters(), lr=0.003)
+        s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
         models.append(m)
         optimizers.append(o)
         schedulers.append(s)
 
     for k in range(K):
-        model = models[k]
-        optimizer = optimizers[k]
-        scheduler = schedulers[k]
-
         for epoch in range(0, epochs_1):
             losses = AverageMeter()
             for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
@@ -187,12 +185,10 @@ if __name__ == '__main__':
                 loss = F.cross_entropy(logits, targets_x.long())
                 loss.backward()
                 losses.update(loss.item())
-                optimizer.step()
-                scheduler.step()
-                model.zero_grad()
-        models.append(m)
-        models.append(optimizers)
-        models.append(schedulers)
+                optimizers[k].step()
+                schedulers[k].step()
+                models[k].zero_grad()
+        
 
 
     ###################################################################################################################

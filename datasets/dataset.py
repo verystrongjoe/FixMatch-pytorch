@@ -16,7 +16,6 @@ from sklearn.model_selection import train_test_split
 import pandas as pd
 import random
 
-
 logger = logging.getLogger(__name__)
 
 cifar10_mean = (0.4914, 0.4822, 0.4465)
@@ -25,7 +24,6 @@ cifar100_mean = (0.5071, 0.4867, 0.4408)
 cifar100_std = (0.2675, 0.2565, 0.2761)
 normal_mean = (0.5, 0.5, 0.5)
 normal_std = (0.5, 0.5, 0.5)
-
 
 
 # Ensemble 논문을 위해 추가한 데이터셋
@@ -46,9 +44,11 @@ class WM811KEnsemble(Dataset):
     idx2label = [k for k in label2idx.keys()]
     num_classes = len(idx2label) 
 
-    def __init__(self, args, mode='train', type='labeled'): 
-        super(WM811K, self).__init__()
+    def __init__(self, args, transform=None, mode='train', type='labeled'): 
+        super(WM811KEnsemble, self).__init__()
         self.args = args
+        self.transform = WM811KTransform(size=(args.size_xy, args.size_xy), mode='test')
+
 
         assert mode in ['train', 'valid', 'test']
         assert type in ['labeled', 'all']
@@ -85,11 +85,10 @@ class WM811KEnsemble(Dataset):
                 assert len(unlabeled_images) == self.args.limit_unlabled
                 print(f"we are using {self.args.limit_unlabled} unlabeled data samples..")            
 
-            unlabeled_images = sorted(lableld_images + unlabeled_images)
             unlabeled_labels = [pathlib.PurePath(image).parent.name for image in unlabeled_images]          # Parent directory names are class label strings
             unlableld_targets = [self.label2idx[l] for l in unlabeled_labels] # Convert class label strings to integer target values
 
-            assert set(unlableld_targets)[0] == '-' # all labels must be '-'
+            assert list(set(unlableld_targets))[0] == 9 # all labels must be '-'
 
         if mode == 'train' and type == 'all':
             self.targets = (lableld_targets + unlableld_targets)
@@ -104,6 +103,8 @@ class WM811KEnsemble(Dataset):
     def __getitem__(self, idx):
         path, y = self.samples[idx]
         x = self.load_image_cv2(path)
+        if self.transform is not None:
+            x = self.transform(x)
         return x, y
 
     def __len__(self):
