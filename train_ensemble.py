@@ -165,7 +165,7 @@ if __name__ == '__main__':
     models, optimizers, schedulers = [], [], []
 
     for k in range(K):
-        m = create_model(args)
+        m = create_model(args).to(args.local_rank)
         o = optim.SGD(m.parameters(), lr=0.003)
         s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
         models.append(m)
@@ -176,8 +176,8 @@ if __name__ == '__main__':
         for epoch in range(0, epochs_1):
             losses = AverageMeter()
             for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
-                targets_x = targets_x.to(0)
-                inputs_x = inputs_x.to(0)
+                targets_x = targets_x.to(args.local_rank)
+                inputs_x = inputs_x.to(args.local_rank)
                 inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
                 logits = m(inputs_x)
                 # criterion = LabelSmoothingLoss(smoothing=0.1)
