@@ -27,7 +27,7 @@ from datetime import datetime
 import argparse
 import wandb
 from torch.optim.lr_scheduler import MultiStepLR
-
+from torch.nn import CrossEntropyLoss
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ percent_test_dataset = 0.2
 # TODO: Milestones이라고 언급된건 어떤걸까?
 batch_size = 256
 lr = 0.003
+
 epochs_1 = 125  # number of epochs for supervised learning (Section 4.2.)
 epochs_2 = 150  # number of epochs for semi-supervised learning (Section 4.2.)
 
@@ -170,9 +171,9 @@ if __name__ == '__main__':
         schedulers.append(s)
 
     for k in range(K):
-        m = models[k]
-        o = optimizers[k]
-        s = schedulers[k]
+        model = models[k]
+        optimizer = optimizers[k]
+        scheduler = schedulers[k]
 
         for epoch in range(0, epochs_1):
             losses = AverageMeter()
@@ -193,50 +194,70 @@ if __name__ == '__main__':
         models.append(optimizers)
         models.append(schedulers)
 
+
+    ###################################################################################################################
     # 준지도 학습
+    ###################################################################################################################  
+    optimizer = optim.SGD(model.parameters(), lr=0.003)
+    scheduler = MultiStepLR(optimizer, milestones=[125], gamma=0.1)
+
     for epoch in range(epochs_2):
         # label + unlabled data 합쳐 mini batch
-        for batch_idx, (input_x, target_x) in enumerate(semi_supervised_trainloader):
-            flags_unlabeled = [target_x=='_']
+        for batch_idx, (inputs_x, targets_x) in enumerate(semi_supervised_trainloader):
+
+            targets_x = targets_x.to(0)
+            inputs_x  = inputs_x.to(0)
+            inputs_x  = inputs_x.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+                
+            flags_unlabeled = [targets_x=='_']
             flags_labeled = not flags_unlabeled
 
-            k_logits = []
-            for k in range(K):
-                logits = models[k](input_x) # (b, o)
-                k_logits.append(logits)
-            
-            # in case of unlabeled data
-            targets_x_u = targets_x[flags_unlabeled].to(0)
-            inputs_x_u = inputs_x[flags_unlabeled].to(0)
-            inputs_x_u = inputs_x[flags_unlabeled].permute(0, 3, 1, 2).float()  # (b, c, h, w)
+            k_logits_u = []
+            k_logits_l = []
 
             # forward every inputs_x to every K models
-            k_logits_u = []
             for k in range(K):
-                logits_u = models[k](inputs_x_u) # (b, o)
-                k_logits_u.append(logits_u)
-            p = torch.mean(torch.stack(k_logits_u, axis=1), axis=1)
-            sum = torch.sum(q, dim=-1)
-            q = q / sum 
+                logits = models[k](inputs_x) # (b, o)
+                # in Section 3.2.2, p_bar_ic is the average of the probability values obainedfrom all the classfier
+                k_logits_u.append(F.log_softmax(logits[flags_unlabeled], -1))
+                k_logits_l.append(F.log_softmax(logits[flags_labeled], -1))  
+            
+            #################################################################################################
+            # in case of unlabeled data
+            #################################################################################################
+            p_u = torch.mean(torch.stack(k_logits_u, axis=0), axis=0)  # k, b, o -> b, o
+            q_u = p_u / torch.sum(p_u, dim=-1) # b, o -> b, o
+
+            # get wc, uic in advance
+            # calculate the class weight using equation 10    
+            w = []  
+            pseudo = torch.stack(k_logits_u, axis=0).gt(tau)  # k, b, c
+            for c in range(args.num_classes):
+                w.append( 1 / ( torch.sum(targets_x[flags_labeled] == c) + torch.sum(pseudo[:,:, c]) ) ) # (c, )
+                        
+            # TODO: 논문에선 u_i로 c가 빠져있는데 저자 답 없음
+            # calculate instance weight by euqaiton 9
+            u_ic = 1 / (1 + torch.exp(-beta*(q_u-tau)))  # b, o
 
             # calculate pseduo label by equation 7
-            probs = torch.softmax(logits, dim=1)
-            labels = torch.zeros_like(probs)
-            labels.scatter_(1, torch.argmax(probs, dim=1, keepdim=True), 1)
+            # y_u_hat_ic = torch.zeros_like(q_u)
+            # y_u_hat_ic.scatter_(1, torch.argmax(q_u, dim=1, keepdim=True), 1)
 
-            u = 1 / (1 + torch.exp(-beta*(q-tau)))
+            # smooth version of above like equation 4
+            # y_u_s_hat_ic = label_smoothing(y_u_hat_ic)
 
-            F.cross_entropy(label_smoothing(q, alpha), labels) 
+            for k in range(K):
+                L_k = 0.
+                # y_l_hat_ic = torch.zeros_like(k_logits_l[k])
+                # y_l_hat_ic.scatter_(1, torch.argmax(k_logits_l[k], dim=1, keepdim=True), 1)
 
-            # calculate instance weight by euqaiton 9
+                # Apply label smoothing both on the original labels of the labeled, and pseduo-alabels of the unlabeled samples using equation 4                
+                ce = CrossEntropyLoss(weight=w, reduction='mean', label_smoothing=0.1)
 
+                # calculate the loss by euantion 8 and update ensemble model    
+                # Compute the cross-entropy loss for supervised
+                L_k_super = ce(k_logits_l[k], targets_x[flags_labeled])
+                # Compute the cross-entropy loss for semi-supervised
+                L_k_semi = ce(k_logits_u[k], targets_x[flags_labeled]* u_ic)
+                (L_k_super + L_k_semi).backward()
         
-        # calculate the class weight using equation 10    
-
-        # Apply label smoothing both on the original labels of the labeled, and pseduo-alabels of the unlabeled samples using equation 4
-
-
-            # calculate the loss by euantion 8 and update ensemble model
-
-
-
