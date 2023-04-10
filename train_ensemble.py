@@ -239,11 +239,16 @@ if __name__ == '__main__':
     ###################################################################################################################
     # 준지도 학습
     ###################################################################################################################  
+    optimizers_semi_supervised = []
     schedulers_semi_supervised = []
     #TODO: 여기 semi쪽 타는거 optimizer는 공유해도 되는지 확인
     for k in range(K):
         s = MultiStepLR(optimizers_supervised[k], milestones=[125], gamma=0.1)
         schedulers_semi_supervised.append(s)
+        
+        o = optim.SGD(models[k].parameters(), lr=0.003)
+        optimizers_semi_supervised.append(o)
+        
     
     for epoch in range(epochs_2):
         losses_super = AverageMeter()
@@ -295,7 +300,6 @@ if __name__ == '__main__':
             # y_u_s_hat_ic = label_smoothing(y_u_hat_ic)
 
             for k in range(K):
-                L_k = 0.
                 # y_l_hat_ic = torch.zeros_like(k_logits_l[k])
                 # y_l_hat_ic.scatter_(1, torch.argmax(k_logits_l[k], dim=1, keepdim=True), 1)
 
@@ -321,9 +325,10 @@ if __name__ == '__main__':
                 losses_super.update(L_k_super.item())
                 losses_semi.update(L_k_semi.item())
 
-                optimizers_supervised[k].step()
+                optimizers_semi_supervised[k].step()
                 schedulers_semi_supervised[k].step()
                 models[k].zero_grad()
+
                 # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
                 print(f"Epoch {epoch} Supervised Loss {losses_super.avg}")
                 print(f"Epoch {epoch} Semi Loss {losses_semi.avg}")
