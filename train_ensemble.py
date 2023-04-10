@@ -330,6 +330,6 @@ if __name__ == '__main__':
                 models[k].zero_grad()
 
                 # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
-                print(f"Epoch {epoch} Supervised Loss {losses_super.avg}")
-                print(f"Epoch {epoch} Semi Loss {losses_semi.avg}")
+                print(f"Epoch {epoch}_{k} Supervised Loss {losses_super.avg}")
+                print(f"Epoch {epoch}_{k} Semi Loss {losses_semi.avg}")
         
