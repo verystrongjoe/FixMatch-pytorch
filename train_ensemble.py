@@ -29,6 +29,8 @@ import argparse
 import wandb
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.nn import CrossEntropyLoss
+from torchviz import make_dot
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,33 +41,19 @@ K = 2
 dropout_rate = 0.5
 limit_unlabled = 200000
 percent_test_dataset = 0.2
+use_supervised_pretrained = True
 
 # check (Table 4) 
 # TODO: Milestones이라고 언급된건 어떤걸까?
 batch_size = 256
 lr = 0.003
 
-epochs_1 = 125  # number of epochs for supervised learning (Section 4.2.)
-epochs_2 = 150  # number of epochs for semi-supervised learning (Section 4.2.)
+
+#TODO: 원래데로 돌려놓자.
+epochs_1 = 125  # 125  # number of epochs for supervised learning (Section 4.2.)
+epochs_2 = 5  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
 
 nm_optim = 'sgd'
-
-class LabelSmoothingLoss(nn.Module):
-    def __init__(self, classes, smoothing=0.0, dim=-1):
-        super(LabelSmoothingLoss, self).__init__()
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
-        self.cls = classes
-        self.dim = dim
-
-    def forward(self, pred, target):
-        pred = pred.log_softmax(dim=self.dim)
-        with torch.no_grad():
-            # true_dist = pred.data.clone()
-            true_dist = torch.zeros_like(pred)
-            true_dist.fill_(self.smoothing / (self.cls - 1))
-            true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
-        return torch.mean(torch.sum(-true_dist * pred, dim=self.dim))
 
 
 def get_args():
@@ -121,43 +109,43 @@ def get_args():
 
 
 
-class CustomCrossEntropyLoss(nn.Module):
-    def __init__(self, weight=None, smoothing=0.0):
-        super(CustomCrossEntropyLoss, self).__init__()
-        self.weight = weight
+class LabelSmoothingLoss(nn.Module):
+    def __init__(self, classes, smoothing=0.0, dim=-1):
+        super(LabelSmoothingLoss, self).__init__()
+        self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
+        self.cls = classes
+        self.dim = dim
 
-    def forward(self, input, target):
-        # apply label smoothing to target
-        if self.smoothing > 0:
-            target = (1 - self.smoothing) * target + self.smoothing / target.size(1)
+    def forward(self, pred, target):
+        pred = pred.log_softmax(dim=self.dim)
+        with torch.no_grad():
+            # true_dist = pred.data.clone()
+            true_dist = torch.zeros_like(pred)
+            true_dist.fill_(self.smoothing / (self.cls - 1))
+            true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+        return torch.mean(torch.sum(-true_dist * pred, dim=self.dim))
 
-        # compute cross-entropy loss
-        loss = F.cross_entropy(input, target, weight=self.weight)
 
-        return loss
+  
+
+def custom_cross_entropy_loss(logits, labels, class_weights=None, smoothing=0.0, instance_weights=None):
+    # apply label smoothing to labels
+    num_classes = args.num_classes
+    if smoothing > 0:
+        smoothed_labels = (1 - smoothing) * F.one_hot(labels, num_classes=num_classes) + smoothing / num_classes
+    else:
+        smoothed_labels = F.one_hot(labels, num_classes=num_classes)
+
+    if instance_weights is not None:
+        # compute cross-entropy loss with class weights
+        loss = F.cross_entropy(logits, smoothed_labels * instance_weights, weight=class_weights)
+    else:
+        loss = F.cross_entropy(logits, smoothed_labels, weight=class_weights)
+
+    return loss
+
     
-
-# class LabelSmoothingLoss(nn.Module):
-#     def __init__(self, smoothing=0.0):
-#         super(LabelSmoothingLoss, self).__init__()
-#         self.smoothing = smoothing
-
-#     def forward(self, inputs, targets):
-#         n_classes = inputs.size(1)
-#         log_preds = F.log_softmax(inputs, dim=1)
-#         loss = -log_preds.sum(dim=1)
-#         smooth_loss = -log_preds.mean(dim=1)
-#         loss = loss.mean()
-#         smooth_loss = smooth_loss.mean()
-#         loss = (1.0 - self.smoothing) * loss + self.smoothing * smooth_loss
-#         return loss
-
-
-# def label_smoothing(label, alpha):
-#     n_classes = label.size(1)
-#     smooth_label = (1 - alpha) * label + (alpha / (n_classes - 1)) * torch.ones_like(label)
-#     return smooth_label
 
 if __name__ == '__main__':
 
@@ -207,23 +195,47 @@ if __name__ == '__main__':
         optimizers_supervised.append(o)
         schedulers_supervised.append(s)
 
-    # for k in range(K):
-    #     for epoch in range(0, epochs_1):
-    #         losses = AverageMeter()
-    #         for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
-    #             targets_x = targets_x.to(args.local_rank)
-    #             inputs_x = inputs_x.to(args.local_rank)
-    #             inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
-    #             logits = m(inputs_x)
-    #             # criterion = LabelSmoothingLoss(smoothing=0.1)
-    #             # loss = criterion(logits, targets_x.long())
-    #             loss = F.cross_entropy(logits, targets_x.long())
-    #             loss.backward()
-    #             losses.update(loss.item())
-    #             optimizers_supervised[k].step()
-    #             schedulers_supervised[k].step()
-    #             models[k].zero_grad()
-        
+    if not use_supervised_pretrained:
+        for k in range(K):
+            models[k].zero_grad()
+            models[k].train()
+
+            for epoch in range(0, epochs_1):
+                losses = AverageMeter()
+                for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
+                    targets_x = targets_x.to(args.local_rank)
+                    inputs_x = inputs_x.to(args.local_rank)
+                    inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
+                    logits = models[k](inputs_x)
+                    # criterion = LabelSmoothingLoss(smoothing=0.1)
+                    # loss = criterion(logits, targets_x.long())
+                    loss = F.cross_entropy(logits, targets_x.long())
+                    loss.backward()
+                    losses.update(loss.item())
+                    optimizers_supervised[k].step()
+                    schedulers_supervised[k].step()
+                    models[k].zero_grad()
+                print(f"Epoch {epoch} Loss {losses.avg}")
+            
+        # save_checkpoint for models
+        for k in range(K):
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': models[k].state_dict(),
+                'optimizer': optimizers_supervised[k].state_dict(),
+                'scheduler': schedulers_supervised[k].state_dict(),
+            }, False, checkpoint='checkpoints', filename='checkpoint_{}.pth.tar'.format(k))
+    else:
+        # load saved checkpoint for models 
+        for k in range(K):
+            state = torch.load('checkpoints/checkpoint_{}.pth.tar'.format(k), map_location='cpu')
+            models[k].load_state_dict(state['state_dict'])
+            models[k].zero_grad()
+            models[k].train()
+
+            optimizers_supervised[k].load_state_dict(state['optimizer'])
+            schedulers_supervised[k].load_state_dict(state['scheduler'])    
+
     ###################################################################################################################
     # 준지도 학습
     ###################################################################################################################  
@@ -234,8 +246,9 @@ if __name__ == '__main__':
         schedulers_semi_supervised.append(s)
     
     for epoch in range(epochs_2):
+        losses_super = AverageMeter()
+        losses_semi = AverageMeter()
 
-        losses = AverageMeter()
         # label + unlabled data 합쳐 mini batch
         for batch_idx, (inputs_x, targets_x) in enumerate(semi_supervised_trainloader):
 
@@ -243,8 +256,8 @@ if __name__ == '__main__':
             inputs_x  = inputs_x.to(0)
             inputs_x  = inputs_x.permute(0, 3, 1, 2).float()  # (b, c, h, w)
                 
-            flags_unlabeled = [targets_x==9]
-            flags_labeled = not flags_unlabeled
+            flags_unlabeled = targets_x==9
+            flags_labeled = ~flags_unlabeled
 
             k_logits_u = []
             k_logits_l = []
@@ -267,9 +280,10 @@ if __name__ == '__main__':
             w = []  
             pseudo = torch.stack(k_logits_u, axis=0).gt(tau)  # k, b, c
             for c in range(args.num_classes):
-                w.append( 1 / ( torch.sum(targets_x[flags_labeled] == c) + torch.sum(pseudo[:,:, c]) ) ) # (c, )
+                w.append( torch.nan_to_num(1 / ( torch.sum(targets_x[flags_labeled] == c) + torch.sum(pseudo[:,:, c]) ), nan=0., posinf=0.) ) # (c, )
+            w = torch.stack(w, axis=0).squeeze()
                         
-            # TODO: 논문에선 u_i로 c가 빠져있는데 저자 답 없음
+            # TODO: 논문에선 u_i로 c가 빠져있는데 수도 레이블에 대한 confidence 만 활용하는지 아님 전체를 활용하는지 모르겠음
             # calculate instance weight by euqaiton 9
             u_ic = 1 / (1 + torch.exp(-beta*(q_u-tau)))  # b, o
 
@@ -287,18 +301,30 @@ if __name__ == '__main__':
 
                 # Apply label smoothing both on the original labels of the labeled, and pseduo-alabels of the unlabeled samples using equation 4                
                 # ce = CrossEntropyLoss(weight=w, reduction='mean', label_smoothing=0.1)
-                ce = CustomCrossEntropyLoss(weight=w, smoothing=0.1)
+                # ce = CustomCrossEntropyLoss(weight=w, smoothing=0.1)
                 # LabelSmoothingLoss
 
                 # calculate the loss by euantion 8 and update ensemble model    
                 # Compute the cross-entropy loss for supervised
-                L_k_super = ce(k_logits_l[k], targets_x[flags_labeled])
+                L_k_super = custom_cross_entropy_loss(k_logits_l[k], targets_x[flags_labeled].long(), w, smoothing=0.1)
+
                 # Compute the cross-entropy loss for semi-supervised
-                L_k_semi = ce(k_logits_u[k], targets_x[flags_labeled]* u_ic)
-                L_k = L_k_super + L_k_semi
-                L_k.backward()
-                losses.update(L_k.item())
+                L_k_semi = custom_cross_entropy_loss(k_logits_u[k], torch.argmax(q_u, dim=-1).long(), w, smoothing=0.1, instance_weights=u_ic)
+
+                L_k_super.backward(retain_graph=True)
+                L_k_semi.backward()
+
+                # L_k = L_k_super + L_k_semi
+                # make_dot(L_k, params=dict(models[k].named_parameters())).render(f"graph", format="png")
+                # L_k.backward()
+
+                losses_super.update(L_k_super.item())
+                losses_semi.update(L_k_semi.item())
+
                 optimizers_supervised[k].step()
                 schedulers_semi_supervised[k].step()
                 models[k].zero_grad()
+                # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
+                print(f"Epoch {epoch} Supervised Loss {losses_super.avg}")
+                print(f"Epoch {epoch} Semi Loss {losses_semi.avg}")
         
