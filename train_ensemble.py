@@ -120,6 +120,24 @@ def get_args():
     return args
 
 
+
+class CustomCrossEntropyLoss(nn.Module):
+    def __init__(self, weight=None, smoothing=0.0):
+        super(CustomCrossEntropyLoss, self).__init__()
+        self.weight = weight
+        self.smoothing = smoothing
+
+    def forward(self, input, target):
+        # apply label smoothing to target
+        if self.smoothing > 0:
+            target = (1 - self.smoothing) * target + self.smoothing / target.size(1)
+
+        # compute cross-entropy loss
+        loss = F.cross_entropy(input, target, weight=self.weight)
+
+        return loss
+    
+
 # class LabelSmoothingLoss(nn.Module):
 #     def __init__(self, smoothing=0.0):
 #         super(LabelSmoothingLoss, self).__init__()
@@ -268,7 +286,8 @@ if __name__ == '__main__':
                 # y_l_hat_ic.scatter_(1, torch.argmax(k_logits_l[k], dim=1, keepdim=True), 1)
 
                 # Apply label smoothing both on the original labels of the labeled, and pseduo-alabels of the unlabeled samples using equation 4                
-                ce = CrossEntropyLoss(weight=w, reduction='mean', label_smoothing=0.1)
+                # ce = CrossEntropyLoss(weight=w, reduction='mean', label_smoothing=0.1)
+                ce = CustomCrossEntropyLoss(weight=w, smoothing=0.1)
                 # LabelSmoothingLoss
 
                 # calculate the loss by euantion 8 and update ensemble model    
