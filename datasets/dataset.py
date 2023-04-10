@@ -69,6 +69,7 @@ class WM811KEnsemble(Dataset):
                 stratify=lableld_targets, shuffle=True, random_state=1993 + self.args.seed)
             lableld_images = X_train
             lableld_targets = y_train
+            print(f"we are using {self.args.proportion}% {len(lableld_targets)} labeled data samples..")            
 
         ##############################################################################################################################
         # unlabeled data
