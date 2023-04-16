@@ -151,17 +151,19 @@ def evaluate(args, models, data_loader):
     # evlaute the model
     for batch_idx, (inputs_x, targets) in enumerate(data_loader):
         logits_k = []
-        for k in range(args.K):
-            inputs_x = inputs_x.to(args.local_rank)
-            targets = targets.to(args.local_rank)
-            
-            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
-            # calculate mean and standard deviation
-            mean = torch.mean(inputs_x.float())
-            std = torch.std(inputs_x.float())
-            # normalize the tensor
-            inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
 
+        inputs_x = inputs_x.to(args.local_rank)
+        targets = targets.to(args.local_rank)
+        
+        inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
+        # calculate mean and standard deviation
+        mean = torch.mean(inputs_x.float())
+        std = torch.std(inputs_x.float())
+        # normalize the tensor
+        inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
+
+
+        for k in range(args.K):
             outputs = train_models[k](inputs_x) # (b, c)
             logits_k.append(outputs)  # (k, b, c)
         
