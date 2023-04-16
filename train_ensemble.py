@@ -11,6 +11,7 @@ import torch.optim as optim
 import torchmetrics
 import torch.multiprocessing as mp
 import torch.distributed as dist
+import torchvision.models as models
 
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
@@ -26,7 +27,6 @@ from utils.common import get_args, save_checkpoint, set_seed, create_model, \
     get_cosine_schedule_with_warmup
 from datetime import datetime
 import argparse
-import wandb
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.nn import CrossEntropyLoss
 from torchviz import make_dot
@@ -37,23 +37,18 @@ logger = logging.getLogger(__name__)
 alpha = 0.1
 beta = 30
 tau = 0.9
-K = 2
 dropout_rate = 0.5
-limit_unlabled = 200000
-percent_test_dataset = 0.2
-use_supervised_pretrained = True
+use_supervised_pretrained = False
 
 # check (Table 4) 
 # TODO: Milestones이라고 언급된건 어떤걸까?
-batch_size = 256
-lr = 0.003
+# lr = 0.003
 
 
 #TODO: 원래데로 돌려놓자.
-epochs_1 = 125  # 125  # number of epochs for supervised learning (Section 4.2.)
-epochs_2 = 5  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
-
-nm_optim = 'sgd'
+epochs_1 = 1  # 125  # number of epochs for supervised learning (Section 4.2.)
+epochs_2 = 2  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
+# nm_optim = 'sgd'
 
 
 def get_args():
@@ -75,7 +70,7 @@ def get_args():
     parser.add_argument('--decouple_input', action='store_true')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--sweep', action='store_true')
-    parser.add_argument('--limit-unlabled', type=int, default=20000)
+    parser.add_argument('--limit-unlabled', type=int, default=200000)
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
@@ -84,9 +79,9 @@ def get_args():
     # experiment
     parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
     parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
-    parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
+    parser.add_argument('--batch-size', default=256, type=int, help='train batchsize')
     parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
-    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, help='initial learning rate')
+    parser.add_argument('--lr', '--learning-rate', default=0.003, type=float, help='initial learning rate')
     parser.add_argument('--warmup', default=0, type=float, help='warmup epochs (unlabeled data based)')  # 이게 어떤 의미가 있을라나??
     parser.add_argument('--wdecay', default=3e-4, type=float, help='weight decay')
     parser.add_argument('--nesterov', action='store_true', default=True, help='use nesterov momentum')
@@ -101,9 +96,12 @@ def get_args():
     parser.add_argument('--threshold', default=0.95, type=float, help='pseudo label threshold')
     parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
     parser.add_argument('--seed', default=None, type=int, help="random seed")
+    parser.add_argument('--K', default=2, type=int, help='number of cnn models') # todo : default 2
 
     args = parser.parse_args()
     args.local_rank = 0
+
+    print(args)
 
     return args
 
@@ -127,7 +125,6 @@ class LabelSmoothingLoss(nn.Module):
         return torch.mean(torch.sum(-true_dist * pred, dim=self.dim))
 
 
-  
 
 def custom_cross_entropy_loss(logits, labels, class_weights=None, smoothing=0.0, instance_weights=None):
     # apply label smoothing to labels
@@ -144,6 +141,38 @@ def custom_cross_entropy_loss(logits, labels, class_weights=None, smoothing=0.0,
         loss = F.cross_entropy(logits, smoothed_labels, weight=class_weights)
 
     return loss
+
+
+
+def evaluate(args, models, data_loader):
+    total_preds = []
+    total_reals = []
+
+    # evlaute the model
+    for batch_idx, (inputs_x, targets) in enumerate(data_loader):
+        logits_k = []
+        for k in range(args.K):
+            inputs_x = inputs_x.to(args.local_rank)
+            targets = targets.to(args.local_rank)
+            
+            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
+            # calculate mean and standard deviation
+            mean = torch.mean(inputs_x.float())
+            std = torch.std(inputs_x.float())
+            # normalize the tensor
+            inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
+
+            outputs = train_models[k](inputs_x) # (b, c)
+            logits_k.append(outputs)  # (k, b, c)
+        
+        logits = torch.mean(torch.stack(logits_k, axis=0), axis=0)  # (b, c)
+        total_preds.append(torch.argmax(logits, dim=1).cpu().detach().numpy())
+        total_reals.append(targets.cpu().detach().numpy())
+
+    total_preds = np.concatenate(total_preds)
+    total_reals = np.concatenate(total_reals)   
+    final_f1 = f1_score(y_true=total_reals, y_pred=total_preds, average='macro')
+    return final_f1
 
     
 
@@ -185,72 +214,87 @@ if __name__ == '__main__':
     # 지도학습
     ###################################################################################################################    
     #TODO: Table 2 ResNet-10, ResNet-18을 WaPIRL과 비교해야함
-    models, optimizers_supervised, schedulers_supervised = [], [], []
+    train_models, optimizers, schedulers = [], [], []
 
-    for k in range(K):
-        m = create_model(args).to(args.local_rank)
+    for k in range(args.K):
+        # TODO: change the pretrained model
+        # m = create_model(args).to(args.local_rank)
+        m  = models.resnet18(pretrained=True)
+        
+        # Modify last layer to have a softmax output of size 9 and add a dropout layer
+        num_ftrs = m.fc.in_features
+        m.fc = torch.nn.Sequential(
+            torch.nn.Linear(num_ftrs, 512),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(p=0.5),
+            torch.nn.Linear(512, 9),
+            torch.nn.LogSoftmax(dim=1)
+        )
+        
+        m = m.to(args.local_rank)
+        
         o = optim.SGD(m.parameters(), lr=0.003)
-        s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
-        models.append(m)
-        optimizers_supervised.append(o)
-        schedulers_supervised.append(s)
+        s = MultiStepLR(o, milestones=[50, 100, 125], gamma=0.1)
+        train_models.append(m)
+        optimizers.append(o)
+        schedulers.append(s)
 
     if not use_supervised_pretrained:
-        for k in range(K):
-            models[k].zero_grad()
-            models[k].train()
+        for k in range(args.K):
+            train_models[k].zero_grad()
+            train_models[k].train()
 
             for epoch in range(0, epochs_1):
                 losses = AverageMeter()
                 for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
                     targets_x = targets_x.to(args.local_rank)
                     inputs_x = inputs_x.to(args.local_rank)
-                    inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
-                    logits = models[k](inputs_x)
+                    
+                    inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
+                    # calculate mean and standard deviation
+                    mean = torch.mean(inputs_x.float())
+                    std = torch.std(inputs_x.float())
+                    # normalize the tensor
+                    inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
+                    
+                    train_models[k](inputs_x)
+                    logits = train_models[k](inputs_x)
                     # criterion = LabelSmoothingLoss(smoothing=0.1)
                     # loss = criterion(logits, targets_x.long())
                     loss = F.cross_entropy(logits, targets_x.long())
                     loss.backward()
                     losses.update(loss.item())
-                    optimizers_supervised[k].step()
-                    schedulers_supervised[k].step()
-                    models[k].zero_grad()
+                    optimizers[k].step()
+                    schedulers[k].step()
+                    train_models[k].zero_grad()
                 print(f"Epoch {epoch} Loss {losses.avg}")
             
         # save_checkpoint for models
-        for k in range(K):
+        for k in range(args.K):
             save_checkpoint({
                 'epoch': epoch + 1,
-                'state_dict': models[k].state_dict(),
-                'optimizer': optimizers_supervised[k].state_dict(),
-                'scheduler': schedulers_supervised[k].state_dict(),
+                'state_dict': train_models[k].state_dict(),
+                'optimizer': optimizers[k].state_dict(),
+                'scheduler': schedulers[k].state_dict(),
             }, False, checkpoint='checkpoints', filename='checkpoint_{}.pth.tar'.format(k))
     else:
         # load saved checkpoint for models 
-        for k in range(K):
+        for k in range(args.K):
             state = torch.load('checkpoints/checkpoint_{}.pth.tar'.format(k), map_location='cpu')
-            models[k].load_state_dict(state['state_dict'])
-            models[k].zero_grad()
-            models[k].train()
+            train_models[k].load_state_dict(state['state_dict'])
+            train_models[k].zero_grad()
+            train_models[k].train()
 
-            optimizers_supervised[k].load_state_dict(state['optimizer'])
-            schedulers_supervised[k].load_state_dict(state['scheduler'])    
+            optimizers[k].load_state_dict(state['optimizer'])
+            schedulers[k].load_state_dict(state['scheduler'])    
 
     ###################################################################################################################
     # 준지도 학습
     ###################################################################################################################  
-    optimizers_semi_supervised = []
-    schedulers_semi_supervised = []
-    #TODO: 여기 semi쪽 타는거 optimizer는 공유해도 되는지 확인
-    for k in range(K):
-        s = MultiStepLR(optimizers_supervised[k], milestones=[125], gamma=0.1)
-        schedulers_semi_supervised.append(s)
-        
-        o = optim.SGD(models[k].parameters(), lr=0.003)
-        optimizers_semi_supervised.append(o)
-        
-    
-    for epoch in range(epochs_2):
+    f1_valid_best  = 0
+    f1_test_best = 0 
+
+    for epoch in range(epochs_1, epochs_2):
         losses_super = AverageMeter()
         losses_semi = AverageMeter()
 
@@ -259,8 +303,14 @@ if __name__ == '__main__':
 
             targets_x = targets_x.to(0)
             inputs_x  = inputs_x.to(0)
-            inputs_x  = inputs_x.permute(0, 3, 1, 2).float()  # (b, c, h, w)
-                
+
+            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
+            # calculate mean and standard deviation
+            mean = torch.mean(inputs_x.float())
+            std = torch.std(inputs_x.float())
+            # normalize the tensor
+            inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
+    
             flags_unlabeled = targets_x==9
             flags_labeled = ~flags_unlabeled
 
@@ -268,8 +318,8 @@ if __name__ == '__main__':
             k_logits_l = []
 
             # forward every inputs_x to every K models
-            for k in range(K):
-                logits = models[k](inputs_x) # (b, o)
+            for k in range(args.K):
+                logits = train_models[k](inputs_x) # (b, o)
                 # in Section 3.2.2, p_bar_ic is the average of the probability values obainedfrom all the classfier
                 k_logits_u.append(F.log_softmax(logits[flags_unlabeled], -1))
                 k_logits_l.append(F.log_softmax(logits[flags_labeled], -1))  
@@ -299,7 +349,9 @@ if __name__ == '__main__':
             # smooth version of above like equation 4
             # y_u_s_hat_ic = label_smoothing(y_u_hat_ic)
 
-            for k in range(K):
+
+            L = 0
+            for k in range(args.K):
                 # y_l_hat_ic = torch.zeros_like(k_logits_l[k])
                 # y_l_hat_ic.scatter_(1, torch.argmax(k_logits_l[k], dim=1, keepdim=True), 1)
 
@@ -315,21 +367,40 @@ if __name__ == '__main__':
                 # Compute the cross-entropy loss for semi-supervised
                 L_k_semi = custom_cross_entropy_loss(k_logits_u[k], torch.argmax(q_u, dim=-1).long(), w, smoothing=0.1, instance_weights=u_ic)
 
-                L_k_super.backward(retain_graph=True)
-                L_k_semi.backward()
-
-                # L_k = L_k_super + L_k_semi
-                # make_dot(L_k, params=dict(models[k].named_parameters())).render(f"graph", format="png")
-                # L_k.backward()
-
+                L_k = L_k_super + L_k_semi
+                L += L_k
+                
                 losses_super.update(L_k_super.item())
                 losses_semi.update(L_k_semi.item())
 
-                optimizers_semi_supervised[k].step()
-                schedulers_semi_supervised[k].step()
-                models[k].zero_grad()
+            L.backward()
+            for k in range(args.K):
+                optimizers[k].step()
+                schedulers[k].step()
+                train_models[k].zero_grad()
 
-                # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
-                print(f"Epoch {epoch}_{k} Supervised Loss {losses_super.avg}")
-                print(f"Epoch {epoch}_{k} Semi Loss {losses_semi.avg}")
+            # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
+
+        print(f"Epoch {epoch} Supervised Loss: {losses_super.avg}, Semi Loss: {losses_semi.avg}")
         
+        # set model train mode
+        for k in range(args.K):
+            train_models[k].eval()
+
+        # validation                
+        f1_valid = evaluate(args, models, valid_loader)
+
+        if f1_valid_best < f1_valid:
+            f1_valid_best = f1_valid
+            
+            # test
+            f1_test = evaluate(args, models, test_loader)
+
+            if best_final_f1_test < f1_test:
+                best_final_f1_test = f1_test
+
+        print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {best_final_f1_test} ")
+        wandb.log({"Epoch": epoch, "F1 Score": f1_valid, "Supervised Loss": losses_super.avg, "Semi Loss": losses_semi.avg})
+        wandb.run.summary["f1_test"] = f1_test
+        wandb.run.summary["f1_test_best"] = f1_test_best
+

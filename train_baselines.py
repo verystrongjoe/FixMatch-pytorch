@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchmetrics
 import torch.multiprocessing as mp
 import torch.distributed as dist
 
@@ -303,10 +302,10 @@ if __name__ == '__main__':
             for k in range(args.K):
                 L_k += L_k_supers[k] + L_k_semis[k]
             L_k.backward()
-            
-            schedulers_semi_supervised[k].step()
-            optimizers_semi_supervised[k].step()
-            models[k].zero_grad()
+            for k in range(args.K):
+                schedulers_semi_supervised[k].step()
+                optimizers_semi_supervised[k].step()
+                models[k].zero_grad()
         
         print(f"Epoch {epoch} Supervised Loss: {losses_super.avg}, Semi Loss: {losses_semi.avg}")
 
