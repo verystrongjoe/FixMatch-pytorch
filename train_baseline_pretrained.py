@@ -1,34 +1,23 @@
 import logging
-import math
-import os
-import time
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import torchmetrics
 import torch.multiprocessing as mp
 import torch.distributed as dist
 import torchvision.models as models
 
 from sklearn.metrics import f1_score
-from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
-from datasets.samplers import ImbalancedDatasetSampler
-from tqdm import tqdm
+from torch.utils.data import DataLoader, SequentialSampler
 import wandb
-# os.environ['WANDB_SILENT']="true"
 
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K, WM811KEnsemble
 from utils import AverageMeter, accuracy
-from utils.common import get_args, save_checkpoint, set_seed, create_model, \
-    get_cosine_schedule_with_warmup
-from datetime import datetime
+from utils.common import get_args, save_checkpoint, set_seed, create_model
 import argparse
 from torch.optim.lr_scheduler import MultiStepLR
-from torch.nn import CrossEntropyLoss
 from torchviz import make_dot
 
 
@@ -40,15 +29,10 @@ tau = 0.9
 dropout_rate = 0.5
 use_supervised_pretrained = False
 
-# check (Table 4) 
-# TODO: Milestones이라고 언급된건 어떤걸까?
-# lr = 0.003
-
 
 #TODO: 원래데로 돌려놓자.
-epochs_1 = 1  # 125  # number of epochs for supervised learning (Section 4.2.)
-epochs_2 = 2  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
-# nm_optim = 'sgd'
+epochs_1 = 125  # 125  # number of epochs for supervised learning (Section 4.2.)
+epochs_2 = 250  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
 
 
 def get_args():
@@ -162,7 +146,6 @@ def evaluate(args, models, data_loader):
         # normalize the tensor
         inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
 
-
         for k in range(args.K):
             outputs = train_models[k](inputs_x) # (b, c)
             logits_k.append(outputs)  # (k, b, c)
@@ -179,13 +162,18 @@ def evaluate(args, models, data_loader):
     
 
 if __name__ == '__main__':
-
     ###################################################################################################################
     # 초기 설정
     ###################################################################################################################
     args = get_args()
+    set_seed(args)
     torch.cuda.set_device(args.local_rank)
     args.logger = logging.getLogger(__name__)
+    print(args)
+
+    wandb.init(project=args.project_name, config=args)
+    run_name = f"K_{args.K}_prop_{args.proportion}_arch_{args.arch}_seed{args.seed}"
+    wandb.run.name = run_name
 
     train_supervised_dataset = WM811KEnsemble(args, mode='train', type='labeled')
     train_semi_dataset = WM811KEnsemble(args, mode='train', type='all')
@@ -219,6 +207,7 @@ if __name__ == '__main__':
     train_models, optimizers, schedulers = [], [], []
 
     for k in range(args.K):
+
         # TODO: change the pretrained model
         # m = create_model(args).to(args.local_rank)
         m  = models.resnet18(pretrained=True)
@@ -228,7 +217,7 @@ if __name__ == '__main__':
         m.fc = torch.nn.Sequential(
             torch.nn.Linear(num_ftrs, 512),
             torch.nn.ReLU(),
-            torch.nn.Dropout(p=0.5),
+            torch.nn.Dropout(p=dropout_rate),
             torch.nn.Linear(512, 9),
             torch.nn.LogSoftmax(dim=1)
         )
@@ -252,17 +241,14 @@ if __name__ == '__main__':
                     targets_x = targets_x.to(args.local_rank)
                     inputs_x = inputs_x.to(args.local_rank)
                     
+                    # make 3 channels and standard normalization
                     inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
-                    # calculate mean and standard deviation
                     mean = torch.mean(inputs_x.float())
                     std = torch.std(inputs_x.float())
-                    # normalize the tensor
                     inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
                     
                     train_models[k](inputs_x)
                     logits = train_models[k](inputs_x)
-                    # criterion = LabelSmoothingLoss(smoothing=0.1)
-                    # loss = criterion(logits, targets_x.long())
                     loss = F.cross_entropy(logits, targets_x.long())
                     loss.backward()
                     losses.update(loss.item())
@@ -294,7 +280,8 @@ if __name__ == '__main__':
     # 준지도 학습
     ###################################################################################################################  
     f1_valid_best  = 0
-    f1_test_best = 0 
+    f1_test_best = 0
+     
 
     for epoch in range(epochs_1, epochs_2):
         losses_super = AverageMeter()
@@ -302,15 +289,13 @@ if __name__ == '__main__':
 
         # label + unlabled data 합쳐 mini batch
         for batch_idx, (inputs_x, targets_x) in enumerate(semi_supervised_trainloader):
+            targets_x = targets_x.to(args.local_rank)
+            inputs_x  = inputs_x.to(args.local_rank)
 
-            targets_x = targets_x.to(0)
-            inputs_x  = inputs_x.to(0)
-
+            # make 3 channels and standard normalization
             inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
-            # calculate mean and standard deviation
             mean = torch.mean(inputs_x.float())
             std = torch.std(inputs_x.float())
-            # normalize the tensor
             inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
     
             flags_unlabeled = targets_x==9
@@ -343,26 +328,8 @@ if __name__ == '__main__':
             # TODO: 논문에선 u_i로 c가 빠져있는데 수도 레이블에 대한 confidence 만 활용하는지 아님 전체를 활용하는지 모르겠음
             # calculate instance weight by euqaiton 9
             u_ic = 1 / (1 + torch.exp(-beta*(q_u-tau)))  # b, o
-
-            # calculate pseduo label by equation 7
-            # y_u_hat_ic = torch.zeros_like(q_u)
-            # y_u_hat_ic.scatter_(1, torch.argmax(q_u, dim=1, keepdim=True), 1)
-
-            # smooth version of above like equation 4
-            # y_u_s_hat_ic = label_smoothing(y_u_hat_ic)
-
-
             L = 0
             for k in range(args.K):
-                # y_l_hat_ic = torch.zeros_like(k_logits_l[k])
-                # y_l_hat_ic.scatter_(1, torch.argmax(k_logits_l[k], dim=1, keepdim=True), 1)
-
-                # Apply label smoothing both on the original labels of the labeled, and pseduo-alabels of the unlabeled samples using equation 4                
-                # ce = CrossEntropyLoss(weight=w, reduction='mean', label_smoothing=0.1)
-                # ce = CustomCrossEntropyLoss(weight=w, smoothing=0.1)
-                # LabelSmoothingLoss
-
-                # calculate the loss by euantion 8 and update ensemble model    
                 # Compute the cross-entropy loss for supervised
                 L_k_super = custom_cross_entropy_loss(k_logits_l[k], targets_x[flags_labeled].long(), w, smoothing=0.1)
 
@@ -371,6 +338,7 @@ if __name__ == '__main__':
 
                 L_k = L_k_super + L_k_semi
                 L += L_k
+                print(L_k_semi.item())
                 
                 losses_super.update(L_k_super.item())
                 losses_semi.update(L_k_semi.item())
@@ -381,7 +349,10 @@ if __name__ == '__main__':
                 schedulers[k].step()
                 train_models[k].zero_grad()
 
-            # print('Epoch: [{0}][{1}/{2}]\t' 'Loss {losses.val:.4f} ({losses.avg:.4f})\t'.format(epoch, batch_idx, len(semi_supervised_trainloader), loss=losses))   
+            # print('Epoch: [{0}][{1}/{2}]\t' 'SS Loss {losses_super.val:.4f} ({losses_super.avg:.4f})\t' 'Se Loss {losses_semi.val:.4f} ({losses_semi.avg:.4f})'.format(
+            #     epoch, batch_idx, len(semi_supervised_trainloader), 
+            #     losses_super=losses_super, 
+            #     losses_semi=losses_semi))   
 
         print(f"Epoch {epoch} Supervised Loss: {losses_super.avg}, Semi Loss: {losses_semi.avg}")
         
@@ -398,11 +369,10 @@ if __name__ == '__main__':
             # test
             f1_test = evaluate(args, models, test_loader)
 
-            if best_final_f1_test < f1_test:
-                best_final_f1_test = f1_test
+            if f1_test_best < f1_test:
+                f1_test_best = f1_test
 
-        print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {best_final_f1_test} ")
+        print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {f1_test_best} ")
         wandb.log({"Epoch": epoch, "F1 Score": f1_valid, "Supervised Loss": losses_super.avg, "Semi Loss": losses_semi.avg})
         wandb.run.summary["f1_test"] = f1_test
         wandb.run.summary["f1_test_best"] = f1_test_best
-

@@ -129,9 +129,9 @@ if __name__ == '__main__':
     # 초기 설정
     ###################################################################################################################
     args = get_args()
+    set_seed(args)
     torch.cuda.set_device(args.local_rank)
     args.logger = logging.getLogger(__name__)
-
     print(args)
 
     wandb.init(project=args.project_name, config=args)
@@ -322,10 +322,10 @@ if __name__ == '__main__':
             # test
             f1_test = evaluate(args, models, test_loader)
 
-            if best_final_f1_test < f1_test:
-                best_final_f1_test = f1_test
+            if f1_test_best < f1_test:
+                f1_test_best = f1_test
 
-        print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {best_final_f1_test} ")
+        print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {f1_test_best} ")
         wandb.log({"Epoch": epoch, "F1 Score": f1_valid, "Supervised Loss": losses_super.avg, "Semi Loss": losses_semi.avg})
         wandb.run.summary["f1_test"] = f1_test
         wandb.run.summary["f1_test_best"] = f1_test_best
