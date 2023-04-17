@@ -31,8 +31,8 @@ use_supervised_pretrained = False
 
 
 #TODO: 원래데로 돌려놓자.
-epochs_1 = 125  # 125  # number of epochs for supervised learning (Section 4.2.)
-epochs_2 = 250  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
+epochs_1 = 50  # 125  # number of epochs for supervised learning (Section 4.2.)
+epochs_2 = 150  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
 
 
 def get_args():
@@ -225,11 +225,12 @@ if __name__ == '__main__':
         m = m.to(args.local_rank)
         
         o = optim.SGD(m.parameters(), lr=0.003)
-        s = MultiStepLR(o, milestones=[50, 100, 125], gamma=0.1)
+        s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
         train_models.append(m)
         optimizers.append(o)
         schedulers.append(s)
 
+    #TODO: K가 2개 이상일 때 서로 다른 모델들이 처리가 되는지 확인
     if not use_supervised_pretrained:
         for k in range(args.K):
             train_models[k].zero_grad()
@@ -281,11 +282,14 @@ if __name__ == '__main__':
     ###################################################################################################################  
     f1_valid_best  = 0
     f1_test_best = 0
-     
 
     for epoch in range(epochs_1, epochs_2):
         losses_super = AverageMeter()
         losses_semi = AverageMeter()
+
+        for k in range(args.K):
+            train_models[k].zero_grad()
+            train_models[k].train()
 
         # label + unlabled data 합쳐 mini batch
         for batch_idx, (inputs_x, targets_x) in enumerate(semi_supervised_trainloader):
@@ -361,13 +365,13 @@ if __name__ == '__main__':
             train_models[k].eval()
 
         # validation                
-        f1_valid = evaluate(args, models, valid_loader)
+        f1_valid = evaluate(args, train_models, valid_loader)
 
         if f1_valid_best < f1_valid:
             f1_valid_best = f1_valid
             
             # test
-            f1_test = evaluate(args, models, test_loader)
+            f1_test = evaluate(args, train_models, test_loader)
 
             if f1_test_best < f1_test:
                 f1_test_best = f1_test

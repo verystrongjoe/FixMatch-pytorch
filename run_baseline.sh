@@ -2,7 +2,7 @@
 # tail -f nohup_baseline.out 
 
 
-for p in 0.05 0.1 0.25 0.5 1.0
+for p in 0.05 # 0.1 0.25 0.5 1.0
 do
     for k in 1 2 3 5
     do

@@ -309,7 +309,7 @@ if __name__ == '__main__':
         
         print(f"Epoch {epoch} Supervised Loss: {losses_super.avg}, Semi Loss: {losses_semi.avg}")
 
-        # set model train mode
+        # set model eval mode
         for k in range(args.K):
             models[k].eval()
 
