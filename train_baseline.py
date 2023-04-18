@@ -179,6 +179,7 @@ if __name__ == '__main__':
 
     if not use_supervised_pretrained:
         for k in range(args.K):
+            # set train mode and make sure to clear the gradients
             models[k].zero_grad()
             models[k].train()
 
@@ -195,7 +196,6 @@ if __name__ == '__main__':
                     optimizers_supervised[k].step()
                     schedulers_supervised[k].step()
                     models[k].zero_grad()
-                print(f"Epoch {epoch} Loss {losses.avg}")
             
         # save_checkpoint for models
         for k in range(args.K):
@@ -212,7 +212,6 @@ if __name__ == '__main__':
             models[k].load_state_dict(state['state_dict'])
             models[k].zero_grad()
             models[k].train()
-
             optimizers_supervised[k].load_state_dict(state['optimizer'])
             schedulers_supervised[k].load_state_dict(state['scheduler'])    
 
@@ -223,7 +222,7 @@ if __name__ == '__main__':
     schedulers_semi_supervised = []
     
     f1_valid_best  = 0
-    f1_test_best = 0 
+    f1_test_best   = 0 
 
     #TODO: 여기 semi쪽 타는거 optimizer는 공유해도 되는지 확인
     for k in range(args.K):

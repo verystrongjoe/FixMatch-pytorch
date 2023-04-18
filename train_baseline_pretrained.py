@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 import torch.optim as optim
 import torch.multiprocessing as mp
 import torch.distributed as dist
@@ -11,6 +12,7 @@ import torchvision.models as models
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, SequentialSampler
 import wandb
+import random
 
 from datasets.dataset import DATASET_GETTERS
 from datasets.dataset import WM811K, WM811KEnsemble
@@ -30,8 +32,7 @@ dropout_rate = 0.5
 use_supervised_pretrained = False
 
 
-#TODO: 원래데로 돌려놓자.
-epochs_1 = 50  # 125  # number of epochs for supervised learning (Section 4.2.)
+epochs_1 = 125  # 125  # number of epochs for supervised learning (Section 4.2.)
 epochs_2 = 150  # 150  # number of epochs for semi-supervised learning (Section 4.2.)
 
 
@@ -139,6 +140,12 @@ def evaluate(args, models, data_loader):
         inputs_x = inputs_x.to(args.local_rank)
         targets = targets.to(args.local_rank)
         
+        # Random horizontal and vertical flipping of the input tensor x with a given probability.
+        if random.random() > 0.5:
+            inputs_x = TF.hflip(inputs_x)
+        if random.random() > 0.5:
+            inputs_x = TF.vflip(inputs_x)
+        
         inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
         # calculate mean and standard deviation
         mean = torch.mean(inputs_x.float())
@@ -204,7 +211,7 @@ if __name__ == '__main__':
     # 지도학습
     ###################################################################################################################    
     #TODO: Table 2 ResNet-10, ResNet-18을 WaPIRL과 비교해야함
-    train_models, optimizers, schedulers = [], [], []
+    train_models, optimizers_supervised, schedulers_supervised = [], [], []
 
     for k in range(args.K):
 
@@ -221,14 +228,13 @@ if __name__ == '__main__':
             torch.nn.Linear(512, 9),
             torch.nn.LogSoftmax(dim=1)
         )
-        
         m = m.to(args.local_rank)
         
         o = optim.SGD(m.parameters(), lr=0.003)
         s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
         train_models.append(m)
-        optimizers.append(o)
-        schedulers.append(s)
+        optimizers_supervised.append(o)
+        schedulers_supervised.append(s)
 
     #TODO: K가 2개 이상일 때 서로 다른 모델들이 처리가 되는지 확인
     if not use_supervised_pretrained:
@@ -236,8 +242,9 @@ if __name__ == '__main__':
             train_models[k].zero_grad()
             train_models[k].train()
 
-            for epoch in range(0, epochs_1):
-                losses = AverageMeter()
+        for epoch in range(0, epochs_1):
+            supervised_losses = [AverageMeter() for _ in range(args.K)]
+            for k in range(args.K):
                 for batch_idx, (inputs_x, targets_x) in enumerate(sueprvised_trainloader):
                     targets_x = targets_x.to(args.local_rank)
                     inputs_x = inputs_x.to(args.local_rank)
@@ -252,19 +259,23 @@ if __name__ == '__main__':
                     logits = train_models[k](inputs_x)
                     loss = F.cross_entropy(logits, targets_x.long())
                     loss.backward()
-                    losses.update(loss.item())
-                    optimizers[k].step()
-                    schedulers[k].step()
+                    supervised_losses[k].update(loss.item())
+                    optimizers_supervised[k].step()
+                    schedulers_supervised[k].step()
                     train_models[k].zero_grad()
-                print(f"Epoch {epoch} Loss {losses.avg}")
+
+            dict_supservised_losses = {"Epoch": epoch}
+            for k in range(args.K):
+                dict_supservised_losses["Supervised Loss(Upstream), {})".format(k)] = supervised_losses[k].avg
+            wandb.log(dict_supservised_losses)
             
         # save_checkpoint for models
         for k in range(args.K):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': train_models[k].state_dict(),
-                'optimizer': optimizers[k].state_dict(),
-                'scheduler': schedulers[k].state_dict(),
+                'optimizer': optimizers_supervised[k].state_dict(),
+                'scheduler': schedulers_supervised[k].state_dict(),
             }, False, checkpoint='checkpoints', filename='checkpoint_{}.pth.tar'.format(k))
     else:
         # load saved checkpoint for models 
@@ -274,16 +285,25 @@ if __name__ == '__main__':
             train_models[k].zero_grad()
             train_models[k].train()
 
-            optimizers[k].load_state_dict(state['optimizer'])
-            schedulers[k].load_state_dict(state['scheduler'])    
+            optimizers_supervised[k].load_state_dict(state['optimizer'])
+            schedulers_supervised[k].load_state_dict(state['scheduler'])    
 
     ###################################################################################################################
     # 준지도 학습
     ###################################################################################################################  
     f1_valid_best  = 0
     f1_test_best = 0
+    
+    optimizers_semi_supervised = []
+    schedulers_semi_supervised = []
 
-    for epoch in range(epochs_1, epochs_2):
+    for k in range(args.K):
+        o = optim.SGD(train_models[k].parameters(), lr=0.003)
+        s = MultiStepLR(o, milestones=[125], gamma=0.1)
+        optimizers_semi_supervised.append(o)
+        schedulers_semi_supervised.append(s)
+
+    for epoch in range(0, epochs_2):
         losses_super = AverageMeter()
         losses_semi = AverageMeter()
 
@@ -342,24 +362,16 @@ if __name__ == '__main__':
 
                 L_k = L_k_super + L_k_semi
                 L += L_k
-                print(L_k_semi.item())
                 
                 losses_super.update(L_k_super.item())
                 losses_semi.update(L_k_semi.item())
 
             L.backward()
             for k in range(args.K):
-                optimizers[k].step()
-                schedulers[k].step()
+                optimizers_semi_supervised[k].step()
+                schedulers_semi_supervised[k].step()
                 train_models[k].zero_grad()
 
-            # print('Epoch: [{0}][{1}/{2}]\t' 'SS Loss {losses_super.val:.4f} ({losses_super.avg:.4f})\t' 'Se Loss {losses_semi.val:.4f} ({losses_semi.avg:.4f})'.format(
-            #     epoch, batch_idx, len(semi_supervised_trainloader), 
-            #     losses_super=losses_super, 
-            #     losses_semi=losses_semi))   
-
-        print(f"Epoch {epoch} Supervised Loss: {losses_super.avg}, Semi Loss: {losses_semi.avg}")
-        
         # set model train mode
         for k in range(args.K):
             train_models[k].eval()
@@ -377,6 +389,6 @@ if __name__ == '__main__':
                 f1_test_best = f1_test
 
         print(f"Epoch {epoch} F1 Score: {f1_valid}", f"Best F1 Score: {f1_valid_best}, f1_test: {f1_test}, best_f1_test: {f1_test_best} ")
-        wandb.log({"Epoch": epoch, "F1 Score": f1_valid, "Supervised Loss": losses_super.avg, "Semi Loss": losses_semi.avg})
+        wandb.log({"Epoch": epoch, "F1 Score": f1_valid, "Supervised Loss(Semi)": losses_super.avg, "Semi Loss": losses_semi.avg})
         wandb.run.summary["f1_test"] = f1_test
         wandb.run.summary["f1_test_best"] = f1_test_best
