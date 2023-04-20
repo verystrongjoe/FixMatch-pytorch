@@ -2,7 +2,7 @@
 program: train.py
 method: random
 name: waferfix-sweep
-description: optimize hyperparam 
+description: 3번째 시도, 하이퍼라마미터 최적화에서 pick
 metric:
   goal: maximize
   name: test_best_f1
@@ -17,7 +17,7 @@ command:
   - "--sweep"
   - "--wandb"
   - "--epochs"
-  - "100"
+  - "150"
   - "--arch"
   - "resnet18"
   - "--batch-size"
@@ -26,7 +26,7 @@ parameters:
   seed:  #1
     value: 1234 
   proportion: #2
-    value: 0.05
+    values: [0.1, 0.25, 0.5, 1.0]
   n_weaks_combinations:  #3
     values: [2, 3, 4, 5, 6]
   tau: #4 
@@ -43,21 +43,20 @@ parameters:
     min: 3
     max: 7
   nm_optim:  #8
-    values: ["adamw", "sgd"]
+    values: ["adamw"]
   keep:   #9 
     values:
       - True
       - False
   limit_unlabled: # 638,507 (total)  #10
     values:
-      - 100000 
-      - 300000
+      - 300000 
+      - 630000
   lr: #11
     values:
-      - 0.002
-      - 0.005
+      - 0.01
   aug_types:  #12
-    values: ["crop,cutout,noise,rotate,shift", "crop,rotate,shift"]
+    values: ["crop,cutout,noise,rotate,shift"]
 
 early_terminate:
   type: hyperband
