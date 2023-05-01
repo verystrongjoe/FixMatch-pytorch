@@ -53,19 +53,34 @@ def get_cosine_schedule_with_warmup(optimizer,
 
     return LambdaLR(optimizer, _lr_lambda, last_epoch)
 
-
 def interleave(x, size):
     s = list(x.shape)
     return x.reshape([-1, size] + s[1:]).transpose(0, 1).reshape([-1] + s[1:])
-
 
 def de_interleave(x, size):
     s = list(x.shape)
     return x.reshape([size, -1] + s[1:]).transpose(0, 1).reshape([-1] + s[1:])
 
+def count_num_digits_after_the_decimal_point(number):
+    string_number = str(number)
+    decimal_index = string_number.index('.')
+    num_digits_after_decimal = len(string_number) - decimal_index - 1
+    return num_digits_after_decimal
+
+def float_format(arg):
+    try:
+        arg = float(arg)
+        cnt = count_num_digits_after_the_decimal_point(arg)
+        if cnt > 2:
+            raise ValueError("Invalid floating-point value: {}".format(arg))
+        elif cnt == 2:
+            return float("{:.2f}".format(float(arg)))
+        elif cnt == 1 or cnt == 0:
+            return float("{:.1f}".format(float(arg)))
+    except ValueError:
+        raise argparse.ArgumentTypeError("Invalid floating-point value: {}".format(arg))
 
 def get_args():
-    
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
     
     parser.add_argument('--gpus', type=int, nargs='+', required=True, help='')
@@ -83,8 +98,8 @@ def get_args():
 
     # dataset
     parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
-    parser.add_argument('--proportion', type=float, help='percentage of labeled data used', default=0.05)
-    parser.add_argument('--fix-keep-proportion', type=float, help='percentage of labeled data used', default=-1.)
+    parser.add_argument('--proportion', type=float_format, help='percentage of labeled data used', default=0.05)
+    parser.add_argument('--fix-keep-proportion', type=float_format, help='percentage of labeled data used', default=-1.)
     parser.add_argument('--num_channel', type=int, default=1)
     parser.add_argument('--num_classes', type=int, default=9)
     parser.add_argument('--size-xy', type=int, default=96)
