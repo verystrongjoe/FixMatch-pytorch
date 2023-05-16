@@ -72,14 +72,14 @@ class MaskedBernoulliNoise(ImageOnlyTransform):
 class WM811KTransform(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
-                 size: tuple = (32, 32),
+                 args,
                  mode: str = 'test',
                  **kwargs):
         assert mode in ['test', 'weak']
-
-        if isinstance(size, int):
-            size = (size, size)
-        defaults = dict(size=size, mode=mode)
+        
+        self.args = args
+        size = (args.size_xy, args.size_xy)
+        defaults = dict(size=size, mode=mode, rotate_weak_aug=args.rotate_weak_aug)
         defaults.update(kwargs)   # Augmentation-specific arguments are configured here.
         self.defaults = defaults  # Falls back to default values if not specified.
 
@@ -104,14 +104,25 @@ class WM811KTransform(object):
     @staticmethod
     def weak_transform(size: tuple, **kwargs):
         ratio = (0.9, 1.1)  # WaPIRL
-        transform = [
-            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            # A.RandomCrop(height=size[0], width=size[1], p=0.5),     # todo : 적용해봐야하나..
-            A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
-            ToWBM()
-        ]
+
+        if kwargs['rotate_weak_aug']:
+            transform = [
+                A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=0.5),
+                A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
+                ToWBM()
+            ]
+        else:
+            transform = [
+                A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.RandomResizedCrop(*size, scale=(0.7, 0.95), ratio=ratio, interpolation=cv2.INTER_NEAREST, p=0.5),  # 230309
+                ToWBM()
+            ]
+
         return transform
 
     @staticmethod
@@ -124,6 +135,7 @@ class WM811KTransform(object):
         return transform
 
 
+# for validation
 class WM811KTransformOnlyOne(object):
     """Transformations for wafer bin maps from WM-811K."""
     def __init__(self,
@@ -322,13 +334,24 @@ class TransformFixMatch(object):
 
 class TransformFixMatchWafer(object):
     def __init__(self, args):
-        self.weak = A.Compose([
-            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
-            # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
-            ToWBM()
-        ])
+
+        if args.rotate_weak_aug:
+            self.weak = A.Compose([
+                A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
+                A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=0.5),
+                A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
+                ToWBM()
+            ])
+        else:
+            self.weak = A.Compose([
+                A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
+                A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
+                ToWBM()
+            ])
 
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
@@ -354,12 +377,15 @@ class TransformFixMatchWafer(object):
         return weak, strong, caption
 
 
+
+# 검증용 데이터셋 transform
 class TransformFixMatchWaferEval(object):
     def __init__(self, args, mode, magnitude):
         self.weak = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
             A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),  
+            A.VerticalFlip(p=0.5), 
+
             ToWBM()
         ])
 

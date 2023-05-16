@@ -47,7 +47,7 @@ class WM811KEnsemble(Dataset):
     def __init__(self, args, transform=None, mode='train', type='labeled'): 
         super(WM811KEnsemble, self).__init__()
         self.args = args
-        self.transform = WM811KTransform(size=(args.size_xy, args.size_xy), mode='test')
+        self.transform = WM811KTransform(args, mode='test')
 
 
         assert mode in ['train', 'valid', 'test']
@@ -440,7 +440,7 @@ class WM811KSaliency(Dataset):
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
         'phrase': 'train',
-        'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='weak'),
+        'transform': WM811KTransform(args, mode='weak'),
         'args': args
     }
     train_unlabeld_data_kwargs = {
@@ -450,7 +450,7 @@ def get_wm811k(args, root):
     }
     test_data_kwargs = {
         'phrase': 'test',
-        'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
+        'transform': WM811KTransform(args, mode='test'),
         'args': args,
     }
 

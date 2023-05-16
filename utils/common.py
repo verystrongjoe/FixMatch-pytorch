@@ -110,7 +110,7 @@ def get_args():
     parser.add_argument('--sweep', action='store_true')
     parser.add_argument('--exclude-none', action='store_true', default=False)
     parser.add_argument('--limit-unlabled', type=int, default=20000)
-
+    parser.add_argument('--rotate-weak-aug', action='store_true')
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
