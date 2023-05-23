@@ -299,12 +299,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         model.eval()
 
         valid_loss, valid_acc, valid_auprc, valid_f1, _, _  = evaluate(epoch, args, valid_loader, model)
-        test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)
-
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
-        best_test_f1 = max(test_f1, best_test_f1)
-        
+
         wandb.log({
             'epoch': epoch,
             'train/1.loss': losses.avg,
@@ -316,79 +313,84 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'valid/2.loss': valid_loss,
             'valid/3.auprc': valid_auprc,
             'valid/4.f1': valid_f1,
-            'test/1.test_acc': test_acc,
-            'test/2.test_loss': test_loss,
-            'test/3.test_auprc': test_auprc,
-            'test/4.test_f1': test_f1
-            })
- 
-        if is_best:  # save best f1
+            # 'test/1.test_acc': test_acc,
+            # 'test/2.test_loss': test_loss,
+            # 'test/3.test_auprc': test_auprc,
+            # 'test/4.test_f1': test_f1
+            })        
+
+        if is_best:
+            test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)
+            best_test_f1 = max(test_f1, best_test_f1)
             wandb.run.summary["test_best_f1"] = best_test_f1
-        
-        if test_f1 > 0.5:
-            saving_path = os.path.join(args.out, str(epoch))
-            os.makedirs(saving_path, exist_ok=True)
-            
-            # 수도레이블 선정된 것들 인덱스 취해서..
-            idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
-            # 모든 수도레이블(레이블이 없는 상태인 -를 제외하고 0~8 값을 다 하나씩 인덱스를 뽑아서 저장)
-            if len(set(targets_u[idxes])) == args.num_classes:
-                flags = [False for i in range(args.num_classes)]
-                for sample_idx, ul in zip(idxes, targets_u[idxes]):
-                    if not flags[ul]:
-                        flags[ul] = True
-                        weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                        strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                        h, w = weak_image.shape[0], weak_image.shape[0]
-                        three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                        three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                        three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                        if args.keep:
-                            three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                        else:
-                            three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                        final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                        # three_images = wandb.Image(three_images, caption=final_caption)
-                        # wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-                        three_images.save(os.path.join(saving_path, f'{WM811K.idx2label[targets_u[sample_idx]]}_{final_caption}.png'))
+            wandb.run.summary["test_f1"] = test_f1
+            wandb.run.summary["test_auprc"] = test_auprc
+            wandb.run.summary["test_acc"] = test_acc
 
-                # wandb.log({f"conf_mat_{epoch}" :
-                #     wandb.plot.confusion_matrix(
-                #         probs=None,
-                #         y_true=total_reals,
-                #         preds=total_preds,
-                #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                #     }
-                # )
-                cm = confusion_matrix(total_reals, total_preds, labels=list(range(args.num_classes)))
-                # plot confusion matrix using seaborn heatmap
-                labels = np.asarray(WM811K.idx2label)[:args.num_classes]
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
-
-                # set plot labels and title
-                plt.xlabel("Predicted label")
-                plt.ylabel("True label")
-                plt.title("Confusion Matrix")
-
-                # show plot
-                plt.savefig(os.path.join(saving_path, 'confusion.png'))
-        
-            model_to_save = model.module if hasattr(model, "module") else model
-            if args.use_ema:
-                ema_to_save = ema_model.ema.module if hasattr(
-                    ema_model.ema, "module") else ema_model.ema
+            if test_f1 > 0.8:
+                saving_path = os.path.join(args.out, str(epoch))
+                os.makedirs(saving_path, exist_ok=True)
                 
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': model_to_save.state_dict(),
-                'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
-                'acc': test_acc,
-                'best_valid_f1': best_valid_f1,
-                'best_test_f1': best_test_f1,
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-            }, is_best, args.out)
-            logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
+                # 수도레이블 선정된 것들 인덱스 취해서..
+                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
+                # 모든 수도레이블(레이블이 없는 상태인 -를 제외하고 0~8 값을 다 하나씩 인덱스를 뽑아서 저장)
+                if len(set(targets_u[idxes])) == args.num_classes:
+                    flags = [False for i in range(args.num_classes)]
+                    for sample_idx, ul in zip(idxes, targets_u[idxes]):
+                        if not flags[ul]:
+                            flags[ul] = True
+                            weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
+                            strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
+                            h, w = weak_image.shape[0], weak_image.shape[0]
+                            three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
+                            three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
+                            three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
+                            if args.keep:
+                                three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
+                            else:
+                                three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
+                            final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
+                            # three_images = wandb.Image(three_images, caption=final_caption)
+                            # wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
+                            three_images.save(os.path.join(saving_path, f'{WM811K.idx2label[targets_u[sample_idx]]}_{final_caption}.png'))
+
+                    # wandb.log({f"conf_mat_{epoch}" :
+                    #     wandb.plot.confusion_matrix(
+                    #         probs=None,
+                    #         y_true=total_reals,
+                    #         preds=total_preds,
+                    #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
+                    #     }
+                    # )
+                    cm = confusion_matrix(total_reals, total_preds, labels=list(range(args.num_classes)))
+                    # plot confusion matrix using seaborn heatmap
+                    labels = np.asarray(WM811K.idx2label)[:args.num_classes]
+                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
+
+                    # set plot labels and title
+                    plt.xlabel("Predicted label")
+                    plt.ylabel("True label")
+                    plt.title("Confusion Matrix")
+
+                    # show plot
+                    plt.savefig(os.path.join(saving_path, 'confusion.png'))
+            
+                model_to_save = model.module if hasattr(model, "module") else model
+                if args.use_ema:
+                    ema_to_save = ema_model.ema.module if hasattr(
+                        ema_model.ema, "module") else ema_model.ema
+                    
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict': model_to_save.state_dict(),
+                    'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
+                    'acc': test_acc,
+                    'best_valid_f1': best_valid_f1,
+                    'best_test_f1': best_test_f1,
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                }, is_best, args.out)
+                logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
 def evaluate(epoch, args, loader, model, valid_f1=None):
@@ -499,6 +501,5 @@ if __name__ == '__main__':
     args = get_args()    
     prerequisite(args)
     check_args(args)
-
     
     main(0, args)  # single machine, single gpu
