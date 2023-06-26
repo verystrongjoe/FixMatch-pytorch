@@ -1,5 +1,5 @@
-# nohup ./run_0.sh > nohup0.out &
-# tail -f nohup0.out 
+# nohup ./run_1.sh > nohup1.out &
+# tail -f nohup1.out 
 
 epoch=180
 lr=0.01
