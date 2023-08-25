@@ -18,13 +18,6 @@ import random
 
 logger = logging.getLogger(__name__)
 
-cifar10_mean = (0.4914, 0.4822, 0.4465)
-cifar10_std = (0.2471, 0.2435, 0.2616)
-cifar100_mean = (0.5071, 0.4867, 0.4408)
-cifar100_std = (0.2675, 0.2565, 0.2761)
-normal_mean = (0.5, 0.5, 0.5)
-normal_std = (0.5, 0.5, 0.5)
-
 
 # Ensemble 논문을 위해 추가한 데이터셋
 class WM811KEnsemble(Dataset):
@@ -278,7 +271,6 @@ class WM811KEvaluated(Dataset):
     #     if self.transform is not None:
     #         x = self.transform(x)
     #     return x, y
-
 
 
     def __len__(self):
