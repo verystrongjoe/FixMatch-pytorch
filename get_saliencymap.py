@@ -56,6 +56,7 @@ def get_args():
 
     parser.add_argument('--seed', default=None, type=int, help="random seed")
     parser.add_argument('--no-progress', action='store_true', help="don't use progress bar")
+    parser.add_argument('--rotate-weak-aug', action='store_true')
 
     args = parser.parse_args()
     logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ def main():
         param.requires_grad = False
 
     kwargs = {
-        'transform': WM811KTransform(size=(args.size_xy, args.size_xy), mode='test'),
+        'transform': WM811KTransform(args, mode='test'),
         'args': args
     }
 

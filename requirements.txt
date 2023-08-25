@@ -9,3 +9,4 @@ torchsampler
 colorama
 tabulate
 seaborn
+torchviz
