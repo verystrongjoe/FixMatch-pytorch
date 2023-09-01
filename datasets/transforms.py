@@ -397,6 +397,8 @@ class TransformFixMatchWaferLinearUCB(object):
         # select action for given image 32x32x1 = 1024 vector
         weak_aug   = weak_policy.select_arm(basic['image'])
         strong_aug = strong_policy.select_arm(basic['image'])
+
+        print(f'weak aug action : {weak_aug} strong aug action : {strong_aug}')
         
         # Defining the modes
         simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift', 'test']

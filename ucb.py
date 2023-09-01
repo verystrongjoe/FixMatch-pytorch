@@ -15,17 +15,18 @@ class linucb_disjoint_arm():
         # Equals to D_a.T * c_a in ridge regression formulation
         self.b = np.zeros([d,1])
         
-    def calc_UCB(self, x_array):
         # Find A inverse for ridge regression
-        A_inv = np.linalg.inv(self.A)
+        self.A_inv = np.linalg.inv(self.A)
+        
+    def calc_UCB(self, x_array):
         # Perform ridge regression to obtain estimate of covariate coefficients theta
         # theta is (d x 1) dimension vector
-        self.theta = np.dot(A_inv, self.b)
+        self.theta = np.dot(self.A_inv, self.b)
         # Reshape covariates input into (d x 1) shape vector
         x = x_array.reshape([-1,1])
         # Find ucb based on p formulation (mean + std_dev) 
         # p is (1 x 1) dimension vector
-        p = np.dot(self.theta.T,x) +  self.alpha * np.sqrt(np.dot(x.T, np.dot(A_inv,x)))
+        p = np.dot(self.theta.T,x) +  self.alpha * np.sqrt(np.dot(x.T, np.dot(self.A_inv,x)))
         return p
     
     def reward_update(self, reward, x_array):
@@ -36,6 +37,8 @@ class linucb_disjoint_arm():
         # Update b which is (d x 1) vector
         # reward is scalar
         self.b += reward * x
+        # update A_inv also
+        self.A_inv = np.linalg.inv(self.A)
 
 
 class linucb_policy():
