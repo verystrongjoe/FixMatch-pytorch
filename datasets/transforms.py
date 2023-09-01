@@ -332,6 +332,340 @@ class TransformFixMatch(object):
         return self.normalize(weak), self.normalize(strong)
 
 
+class TransformFixMatchWaferLinearUCB(object):
+    def __init__(self, args):
+        print('hello')
+        self.args = args
+        self.basic = A.Compose([
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+        ])
+    
+    def assign_transform(self, mode):
+        size = (self.args.size_xy, self.args.size_xy)
+        defaults = dict(size=size, mode=mode)
+        ########################################################
+        ########### for weak augmentation candidates ###########
+        ########################################################
+        if mode == 'crop':
+            transform = self.crop_transform(**defaults)
+        elif mode == 'cutout':
+            transform = self.cutout_transform(**defaults)
+        elif mode == 'noise':
+            transform = self.noise_transform(**defaults)
+        elif mode == 'rotate':
+            transform = self.rotate_transform(**defaults)
+        elif mode == 'shift':
+            transform = self.shift_transform(**defaults)
+        ########################################################
+        elif mode == 'test':
+            transform = self.test_transform(**defaults)
+        ########################################################
+        ########## for strong augmentation candidates ##########
+        ########################################################
+        elif mode in ['crop+cutout', 'cutout+crop']:
+            transform = self.crop_cutout_transform(**defaults)
+        elif mode in ['crop+noise', 'noise+crop']:
+            transform = self.crop_noise_transform(**defaults)
+        elif mode in ['crop+rotate', 'rotate+crop']:
+            transform = self.crop_rotate_transform(**defaults)
+        elif mode in ['crop+shift', 'shift+crop']:
+            transform = self.crop_shift_transform(**defaults)
+        elif mode in ['cutout+noise', 'noise+cutout']:
+            transform = self.cutout_noise_transform(**defaults)
+        elif mode in ['cutout+rotate', 'rotate+cutout']:
+            transform = self.cutout_rotate_transform(**defaults)
+        elif mode in ['cutout+shift', 'shift+cutout']:
+            transform = self.cutout_shift_transform(**defaults)
+        elif mode in ['noise+rotate', 'rotate+noise']:
+            transform = self.noise_rotate_transform(**defaults)
+        elif mode in ['noise+shift', 'shift+noise']:
+            transform = self.noise_shift_transform(**defaults)
+        elif mode in ['rotate+shift', 'shift+rotate']:
+            transform = self.rotate_shift_transform(**defaults)
+        else:
+            raise NotImplementedError
+        ########################################################
+        transform = A.Compose(transform)
+        return transform
+        
+
+    def __call__(self, x, saliency_map):
+        basic = self.basic(image=x)
+        weak_policy = self.args.ucb_weak_policy
+        strong_policy = self.args.ucb_strong_policy
+
+        # select action for given image 32x32x1 = 1024 vector
+        weak_aug   = weak_policy.select_arm(basic['image'])
+        strong_aug = strong_policy.select_arm(basic['image'])
+        
+        # Defining the modes
+        simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift', 'test']
+
+        composite_modes = [
+            'crop+cutout',  # 'cutout+crop',
+            'crop+noise',   # 'noise+crop',
+            'crop+rotate',  # 'rotate+crop',
+            'crop+shift',   # 'shift+crop',
+            'cutout+noise', # 'noise+cutout',
+            'cutout+rotate',# 'rotate+cutout',
+            'cutout+shift', # 'shift+cutout',
+            'noise+rotate', # 'rotate+noise',
+            'noise+shift',  # 'shift+noise',
+            'rotate+shift', # 'shift+rotate'
+        ] 
+       
+        weak_transform = self.assign_transform(simple_modes[weak_aug])
+        strong_trnasform = self.assign_transform(composite_modes[strong_aug])
+        
+        # TODO: 여기에 위에 선택한 action을 리턴해주면 되겠군. 그리고 리워드 업데이트하는 부분만 수정하자!!
+        return weak_transform(image=basic['image'])['image'], strong_trnasform(image=basic['image'])['image'], ''
+    
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        for k, v in self.defaults.items():
+            repr_str += f"\n{k}: {v}"
+        return repr_str
+
+    @staticmethod
+    def crop_transform(size: tuple, scale: tuple = (0.5, 1.0), ratio: tuple = (0.9, 1.1), **kwargs) -> list:  # pylint: disable=unused-argument
+        """
+        Crop-based augmentation, with `albumentations`.
+        Expects a 3D numpy array of shape [H, W, C] as input.
+        """
+        transform = [
+            A.RandomResizedCrop(*size, scale=scale, ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),
+            ToWBM(),
+        ]
+        return transform
+
+    @staticmethod
+    def cutout_transform(size: tuple, num_holes: int = 4, cut_ratio: float = 0.2, **kwargs) -> list:  # pylint: disable=unused-argument
+        cut_h = int(size[0] * cut_ratio)
+        cut_w = int(size[1] * cut_ratio)
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=kwargs.get('cutout_p', 0.5)),
+            ToWBM()
+        ]
+        return transform
+
+    @staticmethod
+    def noise_transform(size: tuple, noise: float = 0.05, **kwargs) -> list:  # pylint: disable=unused-argument
+        if noise <= 0.:
+            raise ValueError("'noise' probability must be larger than zero.")
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            ToWBM(),
+            MaskedBernoulliNoise(noise=noise),
+        ]
+        return transform
+
+    @staticmethod
+    def rotate_transform(size: tuple, **kwargs) -> list:  # pylint: disable=unused-argument
+        """
+        Rotation-based augmentation, with `albumentations`.
+        Expects a 3D numpy array of shape [H, W, C] as input.
+        """
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Rotate(limit=180, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def shift_transform(size: tuple, shift: float = 0.25, **kwargs) -> list:  # pylint: disable=unused-argument
+        transform = [
+            A.ShiftScaleRotate(
+                shift_limit=shift,
+                scale_limit=0,
+                rotate_limit=0,
+                interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=1.0
+            ),
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def test_transform(size: tuple, **kwargs) -> list:  # pylint: disable=unused-argument
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def crop_cutout_transform(size: tuple,
+                              scale: tuple = (0.5, 1.0), ratio: tuple = (0.9, 1.1),
+                              num_holes: int = 4, cut_ratio: float = 0.2,
+                              **kwargs) -> list:
+        cut_h = int(size[0] * cut_ratio)
+        cut_w = int(size[1] * cut_ratio)
+        transform = [
+            A.RandomResizedCrop(*size, scale=scale, ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),
+            A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=kwargs.get('cutout_p', 0.5)),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def crop_noise_transform(size: tuple, # pylint: disable=unused-argument
+                             scale: tuple = (0.5, 1.0), ratio: tuple = (0.9, 1.1),
+                             noise: float = 0.05,
+                             **kwargs) -> list:
+        transform = [
+            A.RandomResizedCrop(*size, scale=scale, ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),
+            ToWBM(),
+            MaskedBernoulliNoise(noise=noise),
+        ]
+
+        return transform
+
+    @staticmethod
+    def crop_rotate_transform(size: tuple, scale: tuple = (0.5, 1.0), ratio: tuple = (0.9, 1.1), **kwargs) -> list: # pylint: disable=unused-argument
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Rotate(limit=180, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            A.RandomResizedCrop(*size, scale=scale, ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def crop_shift_transform(size: tuple,  # pylint: disable=unused-argument
+                             scale: tuple = (0.5, 1.0), ratio: tuple = (0.9, 1.1),
+                             shift: float = 0.25,
+                             **kwargs) -> list:
+        transform = [
+            A.RandomResizedCrop(*size, scale=scale, ratio=ratio, interpolation=cv2.INTER_NEAREST, p=1.0),
+            A.ShiftScaleRotate(
+                shift_limit=shift,
+                scale_limit=0,
+                rotate_limit=0,
+                interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=1.0
+            ),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def cutout_noise_transform(size: tuple,
+                               num_holes: int = 4, cut_ratio: float = 0.2,
+                               noise: float =0.05,
+                               **kwargs):
+        cut_h = int(size[0] * cut_ratio)
+        cut_w = int(size[1] * cut_ratio)
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=kwargs.get('cutout_p', 0.5)),
+            ToWBM(),
+            MaskedBernoulliNoise(noise=noise),
+        ]
+
+        return transform
+
+    @staticmethod
+    def cutout_rotate_transform(size: tuple,
+                                num_holes: int = 4, cut_ratio: float = 0.2,
+                                **kwargs):
+        cut_h = int(size[0] * cut_ratio)
+        cut_w = int(size[1] * cut_ratio)
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Rotate(limit=180, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=kwargs.get('cutout_p', 0.5)),
+            ToWBM(),
+        ]
+
+        return transform
+
+    @staticmethod
+    def cutout_shift_transform(size: tuple,
+                               num_holes: int = 4, cut_ratio: float = 0.2,
+                               shift: float = 0.25,
+                               **kwargs):
+        cut_h = int(size[0] * cut_ratio)
+        cut_w = int(size[1] * cut_ratio)
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Cutout(num_holes=num_holes, max_h_size=cut_h, max_w_size=cut_w, fill_value=0, p=kwargs.get('cutout_p', 0.5)),
+            A.ShiftScaleRotate(
+                shift_limit=shift,
+                scale_limit=0,
+                rotate_limit=0,
+                interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=1.0
+            ),
+            ToWBM(),
+        ]
+        return transform
+
+    @staticmethod
+    def noise_rotate_transform(size: tuple, noise: float = 0.05, **kwargs):  # pylint: disable=unused-argument
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Rotate(limit=180, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            ToWBM(),
+            MaskedBernoulliNoise(noise=noise),
+        ]
+
+        return transform
+
+    @staticmethod
+    def noise_shift_transform(size: tuple, noise: float = 0.05, shift: float = 0.25, **kwargs):  # pylint: disable=unused-argument
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.ShiftScaleRotate(
+                shift_limit=shift,
+                scale_limit=0,
+                rotate_limit=0,
+                interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=1.0
+            ),
+            ToWBM(),
+            MaskedBernoulliNoise(noise=noise),
+        ]
+
+        return transform
+
+    @staticmethod
+    def rotate_shift_transform(size: tuple, shift: float = 0.25, **kwargs):  # pylint: disable=unused-argument
+        transform = [
+            A.Resize(*size, interpolation=cv2.INTER_NEAREST),
+            A.Rotate(limit=180, interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=1.0),
+            A.ShiftScaleRotate(
+                shift_limit=shift,
+                scale_limit=0,
+                rotate_limit=0,
+                interpolation=cv2.INTER_NEAREST,
+                border_mode=cv2.BORDER_CONSTANT,
+                value=0,
+                p=1.0
+            ),
+            ToWBM(),
+        ]
+        return transform
+
+
+
 class TransformFixMatchWafer(object):
     def __init__(self, args):
 
@@ -377,7 +711,6 @@ class TransformFixMatchWafer(object):
         return weak, strong, caption
 
 
-
 # 검증용 데이터셋 transform
 class TransformFixMatchWaferEval(object):
     def __init__(self, args, mode, magnitude):
@@ -411,8 +744,6 @@ class TransformFixMatchWaferEval(object):
         strong_trans = WM811KTransformOnlyOne(self.args, self.mode, self.magnitude, saliency_map)
         strong = strong_trans(basic['image'])
         return weak, strong
-
-
 
 
 class KeepCutout(ImageOnlyTransform):

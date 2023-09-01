@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 from torchvision import datasets
 from numpy import random
-from datasets.transforms import WM811KTransform, TransformFixMatch, TransformFixMatchWafer
+from datasets.transforms import WM811KTransform, TransformFixMatch, TransformFixMatchWafer, TransformFixMatchWaferLinearUCB
 from torchvision import transforms
 from torch.utils.data import Dataset
 import torch
@@ -299,7 +299,6 @@ class WM811KEvaluated(Dataset):
         return torch.cat([x, m], dim=0)
 
 
-
 class WM811KUnlabled(Dataset):
     label2idx = {
         'center'    : 0,
@@ -341,9 +340,7 @@ class WM811KUnlabled(Dataset):
     def __getitem__(self, idx):
         path, saliency_map = self.samples[idx]
         x = self.load_image_cv2(path)
-        
         weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
-
         # caption 앞에 파일 경로 추가        
         return weak, strong, path+caption, saliency_map
 
@@ -429,17 +426,28 @@ class WM811KSaliency(Dataset):
         out = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)  # 2D; (H, W)
         return np.expand_dims(out, axis=2)                # 3D; (H, W, 1)
 
+
 def get_wm811k(args, root):
     train_labeld_data_kwargs = {
         'phrase': 'train',
         'transform': WM811KTransform(args, mode='weak'),
         'args': args
     }
-    train_unlabeld_data_kwargs = {
-        'phrase': 'train',
-        'transform': TransformFixMatchWafer(args),
-        'args': args,
-    }
+
+    if args.ucb:
+        train_unlabeld_data_kwargs = {
+            'phrase': 'train',
+            'transform': TransformFixMatchWaferLinearUCB(args),
+            'args': args,
+        }
+    else:
+        train_unlabeld_data_kwargs = {
+            'phrase': 'train',
+            'transform': TransformFixMatchWafer(args),
+            'args': args,
+        }        
+        
+    
     test_data_kwargs = {
         'phrase': 'test',
         'transform': WM811KTransform(args, mode='test'),

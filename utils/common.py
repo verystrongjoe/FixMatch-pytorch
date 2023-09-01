@@ -20,6 +20,7 @@ from models.vggnet import VggNetBackbone
 from models.alexnet import AlexNetBackbone
 
 from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
+from ucb import linucb_policy
 
 
 def save_checkpoint(state, is_best, checkpoint, filename='checkpoint.pth.tar'):
@@ -79,6 +80,10 @@ def float_format(arg):
             return float("{:.1f}".format(float(arg)))
     except ValueError:
         raise argparse.ArgumentTypeError("Invalid floating-point value: {}".format(arg))
+
+
+
+
 
 def get_args():
     parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
@@ -143,16 +148,122 @@ def get_args():
                         help="how many weak augmentations to make stronger augmentation")
     parser.add_argument("--aug_types", nargs='+', type=str, default=['crop', 'cutout', 'noise', 'rotate', 'shift'])
     parser.add_argument('--keep', action='store_true', help='keep-cutout or keep-paste')
-
+    
     args = parser.parse_args()
 
     num_gpus_per_node = len(args.gpus)
     world_size = args.num_nodes * num_gpus_per_node
     args.world_size = world_size
     args.num_gpus_per_node = num_gpus_per_node
+  
+    return args
+
+
+def get_args_ucb():
+    parser = argparse.ArgumentParser(description='PyTorch FixMatch Training')
+    
+    parser.add_argument('--num-workers', type=int, default=0, help='number of workers')
+
+    parser.add_argument('--server', type=str, choices=('ukjo-ubuntu', 'ukjo-window', 'richgo90',  'dgx', 'workstation1', 'workstation2'))
+    parser.add_argument('--num_nodes', type=int, default=1, help='')
+    parser.add_argument('--node_rank', type=int, default=0, help='')
+    parser.add_argument('--dist_url', type=str, default='tcp://127.0.0.1:3500', help='')
+    parser.add_argument('--dist_backend', type=str, default='nccl', help='')
+
+    # project settings
+    parser.add_argument('--project-name', required=True, type=str)
+    parser.add_argument('--out', type=str, default='')
+
+    # dataset
+    parser.add_argument('--dataset', default='wm811k', type=str, choices=['wm811k', 'cifar10', 'cifar100'], help='dataset name')
+    parser.add_argument('--proportion', type=float_format, help='percentage of labeled data used', default=0.05)
+    parser.add_argument('--fix-keep-proportion', type=float_format, help='percentage of labeled data used', default=-1.)
+    parser.add_argument('--num_channel', type=int, default=1)
+    parser.add_argument('--num_classes', type=int, default=9)
+    parser.add_argument('--size-xy', type=int, default=96)
+
+    parser.add_argument("--expand-labels", action="store_true", help="expand labels to fit eval steps")
+    parser.add_argument('--decouple_input', action='store_true')
+    parser.add_argument('--wandb', action='store_true')
+    parser.add_argument('--sweep', action='store_true')
+    parser.add_argument('--exclude-none', action='store_true', default=False)
+    parser.add_argument('--limit-unlabled', type=int, default=20000)
+    parser.add_argument('--rotate-weak-aug', action='store_true')
+
+    # model
+    parser.add_argument('--arch', type=str, default='wideresnet',
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
+    # parser.add_argument('--arch-config', default='18', type=str)
+
+    # experiment
+    parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
+    parser.add_argument('--start-epoch', default=0, type=int, help='manual epoch number (useful on restarts)')
+    parser.add_argument('--batch-size', default=128, type=int, help='train batchsize')
+    parser.add_argument('--nm-optim', type=str, default='sgd', choices=('sgd', 'adamw'))
+    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, help='initial learning rate')
+    parser.add_argument('--warmup', default=0, type=float, help='warmup epochs (unlabeled data based)')  # 이게 어떤 의미가 있을라나??
+    parser.add_argument('--wdecay', default=3e-4, type=float, help='weight decay')
+    parser.add_argument('--nesterov', action='store_true', default=True, help='use nesterov momentum')
+    parser.add_argument('--use-ema', action='store_true', default=True, help='use EMA model')
+    parser.add_argument('--ema-decay', default=0.999, type=float, help='EMA decay rate')
+    parser.add_argument('--tau', default=0.3, type=float, help='tau')
+
+    # fixmatch
+    parser.add_argument('--mu', default=7, type=int, help='coefficient of unlabeled batch size') # todo : default 7
+    parser.add_argument('--lambda-u', default=1, type=float, help='coefficient of unlabeled loss')  # todo : default 1
+    parser.add_argument('--T', default=1, type=float, help='pseudo label temperature')
+    parser.add_argument('--threshold', default=0.95, type=float, help='pseudo label threshold')
+    parser.add_argument('--resume', default='', type=str, help='path to latest checkpoint (default: none)')
+    parser.add_argument('--seed', default=None, type=int, help="random seed")
+
+    # augmentations
+    parser.add_argument('--n-weaks-combinations', type=int, default=2,
+                        help="how many weak augmentations to make stronger augmentation")
+    parser.add_argument("--aug_types", nargs='+', type=str, default=['crop', 'cutout', 'noise', 'rotate', 'shift'])
+    parser.add_argument('--keep', action='store_true', help='keep-cutout or keep-paste')
+    
+    # ucb configuration
+    parser.add_argument('--ucb', action='store_true', help='whether or not this algo uses ucb bandit for weak and strong augmentations.')
+    parser.add_argument('--ucb_context_vector', type=int, default=1024)
+    parser.add_argument('--ucb_alpha', type=int, default=1.5)
+    parser.add_argument('--ucb_arms_for_weak', type=int, default=5)
+    parser.add_argument('--ucb_arms_for_strong', type=int, default=5*2)
+
+    args = parser.parse_args()
+
+
+    #TODO: 임시 지정!!!!
+    args.ucb = True
+    args.size_xy = 32
+
+    num_gpus_per_node = 0
+    world_size = args.num_nodes * num_gpus_per_node
+    args.world_size = world_size
+    args.num_gpus_per_node = num_gpus_per_node
     
     if args.world_size == 1:
         args.local_rank = 0
+
+    if args.dataset == 'wm811k':
+        if not args.exclude_none:
+            args.num_classes = 9
+        else:
+            args.num_classes = 8
+        if args.arch == 'wideresnet':
+            args.model_depth = 28
+            args.model_width = 2
+        elif args.arch == 'resnext':
+            args.model_cardinality = 4
+            args.model_depth = 28
+            args.model_width = 4
+    else:
+        raise ValueError('unknown dataset') 
+
+    # [ucb] add policy to be used all place in every source
+    if args.ucb:
+        #TODO: context vector는 weak, strong이든 고정
+        args.ucb_weak_policy = linucb_policy(K_arms=args.ucb_arms_for_weak, d=args.ucb_context_vector, alpha=args.ucb_alpha)
+        args.ucb_strong_policy = linucb_policy(K_arms=args.ucb_arms_for_strong, d=args.ucb_context_vector, alpha=args.ucb_alpha) 
 
     return args
 

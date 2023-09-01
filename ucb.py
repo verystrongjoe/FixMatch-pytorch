@@ -1,7 +1,6 @@
 import requests
 import numpy as np
 
-
 # Create class object for a single linear ucb disjoint arm
 class linucb_disjoint_arm():
     def __init__(self, arm_index, d, alpha):
@@ -87,19 +86,22 @@ def ctr_simulator(K_arms, d, alpha, data_path):
         for line_data in f:
             if line_data == '\n':
                 continue
+            
+            ################################################################################################
             # 1st column: Logged data arm. 
             # Integer data type
             data_arm = int(line_data.split()[0])
 
             # 2nd column: Logged data reward for logged chosen arm
-            # Float data type
             data_reward = float(line_data.split()[1])
 
             # 3rd columns onwards: 100 covariates. Keep in array of dimensions (100,) with float data type
-            covariate_string_list = line_data.split()[2:]
-            data_x_array = np.array([float(covariate_elem) for covariate_elem in covariate_string_list])
+            data_x_array = np.array([float(covariate_elem) for covariate_elem in line_data.split()[2:]])
+            ################################################################################################
 
+            ################################################################################################
             # Find policy's chosen arm based on input covariates at current time step
+            # [ucb] select action (arm_index) based on given context (data_x_array)
             arm_index = linucb_policy_object.select_arm(data_x_array)
 
             # Check if arm_index is the same as data_arm (ie same actions were chosen)
@@ -107,14 +109,17 @@ def ctr_simulator(K_arms, d, alpha, data_path):
             if arm_index + 1 == data_arm:
 
                 # Use reward information for the chosen arm to update
+                # [ucb] update policy with reward given by environment after agent took action
                 linucb_policy_object.linucb_arms[arm_index].reward_update(data_reward, data_x_array)
 
                 # For CTR calculation
                 aligned_time_steps += 1
                 cumulative_rewards += data_reward
                 aligned_ctr.append(cumulative_rewards/aligned_time_steps)
+            ################################################################################################                
                     
     return (aligned_time_steps, cumulative_rewards, aligned_ctr, linucb_policy_object)
+
 
 
 
@@ -122,5 +127,4 @@ if __name__ =='__main__':
     alpha_input = 1.5
     data_path = "data.txt"
     aligned_time_steps, cum_rewards, aligned_ctr, policy = ctr_simulator(K_arms = 10, d = 100, alpha = alpha_input, data_path = data_path)
-
     print(aligned_time_steps, cum_rewards, aligned_ctr, policy)

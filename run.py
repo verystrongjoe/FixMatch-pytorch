@@ -28,13 +28,10 @@ from models.resnet import ResNetBackbone
 from models.vggnet import VggNetBackbone
 from models.alexnet import AlexNetBackbone
 
-
 from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
 
 
-
 if __name__ == '__main__':
-    print('test resnet')
 
     args = Namespace()
     args.num_channel = 1
@@ -44,7 +41,6 @@ if __name__ == '__main__':
     args.local_rank = 0
     x = torch.rand((32, 1, 96, 96)).to(args.local_rank)
     # m = AdvancedCNN(args)
-
 
     m = ResNetBackbone(RESNET_BACKBONE_CONFIGS['18'], in_channels=1)
     m.to(args.local_rank)
