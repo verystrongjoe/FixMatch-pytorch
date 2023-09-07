@@ -318,10 +318,15 @@ class WM811KUnlabled(Dataset):
 
     def __init__(self, root, transform=None, **kwargs):
         super(WM811KUnlabled, self).__init__()
-
         self.root = root
-        self.transform = transform
+
         self.args = kwargs.get('args', 0)
+
+        if self.args.ucb:
+            self.transform = transform[0]
+            self.basic_transform = transform[1]
+        else:
+            self.transform = transform
 
         images = sorted(glob.glob(os.path.join(root, '**/*.png'), recursive=True))  # Get paths to images
         
@@ -340,9 +345,17 @@ class WM811KUnlabled(Dataset):
     def __getitem__(self, idx):
         path, saliency_map = self.samples[idx]
         x = self.load_image_cv2(path)
-        weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
+        
+        if self.args.ucb:
+            arm_weak, weak, arm_strong, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
+        else:
+            weak, strong, caption = self.transform(x, np.load(saliency_map) if self.args.keep else None)
+
         # caption 앞에 파일 경로 추가        
-        return weak, strong, path+caption, saliency_map
+        if self.args.ucb:
+            return arm_weak, weak, arm_strong, strong, self.basic_transform(x), path+caption, saliency_map
+        else:
+            return weak, strong, path+caption, saliency_map
 
     def __len__(self):
         return len(self.samples)
@@ -437,7 +450,7 @@ def get_wm811k(args, root):
     if args.ucb:
         train_unlabeld_data_kwargs = {
             'phrase': 'train',
-            'transform': TransformFixMatchWaferLinearUCB(args),
+            'transform': (TransformFixMatchWaferLinearUCB(args), WM811KTransform(args, mode='test')),
             'args': args,
         }
     else:

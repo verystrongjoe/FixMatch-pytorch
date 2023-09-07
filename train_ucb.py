@@ -3,6 +3,7 @@ import logging
 import time
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchmetrics
@@ -31,14 +32,13 @@ logger = logging.getLogger(__name__)
 best_valid_f1 = 0
 best_test_f1 = 0
 
-
 def main(local_rank, args):
     global best_valid_f1, best_test_f1
     args.local_rank = local_rank
     torch.cuda.set_device(args.local_rank)
 
     labeled_dataset, unlabeled_dataset, valid_dataset, test_dataset = DATASET_GETTERS[args.dataset](args, './data')
-    
+
     # https://discuss.pytorch.org/t/how-to-use-my-own-sampler-when-i-already-use-distributedsampler/62143/20
     labeled_trainloader = DataLoader(dataset=labeled_dataset,
                       batch_size=args.batch_size,
@@ -131,6 +131,7 @@ def main(local_rank, args):
 
 def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler):
+    
     global best_valid_f1, best_test_f1
     end = time.time()
 
@@ -153,9 +154,13 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         p_bar = tqdm((unlabeled_trainloader))
 
         model.train()
-        for batch_idx, (inputs_u_w, inputs_u_s, caption, saliency_map) in enumerate(unlabeled_trainloader):
+        for batch_idx, items in enumerate(unlabeled_trainloader):
+            if args.ucb:
+                arm_for_weak_aug, inputs_u_w, arm_for_strong_aug, inputs_u_s, inputs_origin, caption, saliency_map = items
+            else:
+                inputs_u_w, inputs_u_s, caption, saliency_map = items
             try:
-                (inputs_x, targets_x) = next(labeled_iter)
+                (inputs_x, targets_x) = next(labeled_iter) # labeled
             except:
                 labeled_iter = iter(labeled_trainloader)
                 args.logger.info(f'train labeled dataset iter is reset at unlabeled mini-batch step of {batch_idx}')
@@ -170,23 +175,53 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
             logits = model(inputs)
             logits = de_interleave(logits, 2*args.mu+1)
-
             logits_x = logits[:batch_size]
             logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
 
             # [ucb] : reward calculation
             # TODO:: cosine 유사도가 낮으나 레이블 일치하면 더 크게 리워드 부여 (임세린 의견) 고민 해볼것
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w  and logits_x    + pusedo_label match  
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w  and logiits_u_s + pusedo_label match 
-            
+            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logits_x    + pusedo_label match  
+            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logiits_u_s + pusedo_label match 
 
             del logits
             Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
             pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
             mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
-          
+
+
+
+            if args.ucb:
+                #######################################################################################################################
+                # bandit 적용 부분 (리워드 및 컨텍스트 반영 및 업데이트 )
+                #######################################################################################################################
+                # TODO: 낮아야 좋은건지 높아야 좋을건지 고민되네. 서로 유사하긴 해야하지 않나. 둘다 실험이 필요할듯
+                # -->업데이트를 하자면 cosine 유사도가 낮도록 해놓고 pseudo label이 얻어졌을때 리워드를 크게 주는것이 좋을듯
+                rewards_one = (1 / nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s))
+                rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
+
+                context_vectors = inputs_origin.flatten(start_dim=1).cpu().detach().numpy()
+                reward_vectors = (rewards_one + rewards_two).cpu().detach().numpy()
+                # weak_arms = arm_for_weak_aug.cpu().detach().numpy()
+                # strong_arms = arm_for_strong_aug.cpu().detach().numpy()
+
+                # update weak policy
+                for arm in range(args.ucb_weak_policy.K_arms):
+                    states  = context_vectors[arm_for_weak_aug == arm]
+                    rewards = reward_vectors[arm_for_weak_aug == arm]
+                    args.ucb_weak_policy.linucb_arms[arm].add_to_buffer(states, rewards)
+
+                # update storng policy
+                for arm in range(args.ucb_strong_policy.K_arms):
+                    states  = context_vectors[arm_for_strong_aug == arm]
+                    rewards = reward_vectors[arm_for_strong_aug == arm]
+                    args.ucb_strong_policy.linucb_arms[arm].add_to_buffer(states, rewards)
+                #######################################################################################################################                
+                #######################################################################################################################
+            
+
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
+
             loss = Lx + args.lambda_u * Lu  # 최종 loss를 labeled와 unlabeled 합산
             loss.backward()
 
@@ -295,12 +330,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                     # plot confusion matrix using seaborn heatmap
                     labels = np.asarray(WM811K.idx2label)[:args.num_classes]
                     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
-
                     # set plot labels and title
                     plt.xlabel("Predicted label")
                     plt.ylabel("True label")
                     plt.title("Confusion Matrix")
-
                     # show plot
                     plt.savefig(os.path.join(saving_path, 'confusion.png'))
             
@@ -323,7 +356,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
 
 def evaluate(epoch, args, loader, model, valid_f1=None):
-
     fn_auprc = torchmetrics.classification.MulticlassAveragePrecision(num_classes=args.num_classes, average='macro')
     fn_f1score = torchmetrics.classification.MulticlassF1Score(num_classes=args.num_classes, average='macro')
     

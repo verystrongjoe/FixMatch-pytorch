@@ -334,7 +334,6 @@ class TransformFixMatch(object):
 
 class TransformFixMatchWaferLinearUCB(object):
     def __init__(self, args):
-        print('hello')
         self.args = args
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
@@ -388,17 +387,16 @@ class TransformFixMatchWaferLinearUCB(object):
         transform = A.Compose(transform)
         return transform
         
-
     def __call__(self, x, saliency_map):
         basic = self.basic(image=x)
         weak_policy = self.args.ucb_weak_policy
         strong_policy = self.args.ucb_strong_policy
 
         # select action for given image 32x32x1 = 1024 vector
-        weak_aug   = weak_policy.select_arm(basic['image'])
-        strong_aug = strong_policy.select_arm(basic['image'])
+        arm_for_weak_aug   = weak_policy.select_arm(basic['image'])
+        arm_for_strong_aug = strong_policy.select_arm(basic['image'])
 
-        print(f'weak aug action : {weak_aug} strong aug action : {strong_aug}')
+        print(f'weak aug action : {arm_for_weak_aug} strong aug action : {arm_for_strong_aug}')
         
         # Defining the modes
         simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift', 'test']
@@ -416,11 +414,11 @@ class TransformFixMatchWaferLinearUCB(object):
             'rotate+shift', # 'shift+rotate'
         ] 
        
-        weak_transform = self.assign_transform(simple_modes[weak_aug])
-        strong_trnasform = self.assign_transform(composite_modes[strong_aug])
+        weak_transform = self.assign_transform(simple_modes[arm_for_weak_aug])
+        strong_trnasform = self.assign_transform(composite_modes[arm_for_strong_aug])
         
         # TODO: 여기에 위에 선택한 action을 리턴해주면 되겠군. 그리고 리워드 업데이트하는 부분만 수정하자!!
-        return weak_transform(image=basic['image'])['image'], strong_trnasform(image=basic['image'])['image'], ''
+        return arm_for_weak_aug, weak_transform(image=basic['image'])['image'], arm_for_strong_aug, strong_trnasform(image=basic['image'])['image'], ''
     
 
     def __repr__(self):

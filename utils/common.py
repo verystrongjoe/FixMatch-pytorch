@@ -231,9 +231,9 @@ def get_args_ucb():
 
     args = parser.parse_args()
 
-
+    
     #TODO: 임시 지정!!!!
-    args.ucb = True
+    args.ucb = False
     args.size_xy = 32
 
     num_gpus_per_node = 0
@@ -262,14 +262,13 @@ def get_args_ucb():
     # [ucb] add policy to be used all place in every source
     if args.ucb:
         #TODO: context vector는 weak, strong이든 고정
-        args.ucb_weak_policy = linucb_policy(K_arms=args.ucb_arms_for_weak, d=args.ucb_context_vector, alpha=args.ucb_alpha)
-        args.ucb_strong_policy = linucb_policy(K_arms=args.ucb_arms_for_strong, d=args.ucb_context_vector, alpha=args.ucb_alpha) 
+        args.ucb_weak_policy = linucb_policy(K_arms=args.ucb_arms_for_weak, d=args.ucb_context_vector, alpha=args.ucb_alpha, batch_size=args.batch_size)
+        args.ucb_strong_policy = linucb_policy(K_arms=args.ucb_arms_for_strong, d=args.ucb_context_vector, alpha=args.ucb_alpha, batch_size=args.batch_size) 
 
     return args
 
 
 def create_model(args, keep=False):
-    
     if args.arch == 'wideresnet':
         import models.wideresnet as models
         args.model_depth = 28
@@ -303,7 +302,6 @@ def create_model(args, keep=False):
         raise ValueError('unknown model')
   
     return model
-
 
 
 class MultiAUPRC(nn.Module):
