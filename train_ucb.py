@@ -32,6 +32,48 @@ logger = logging.getLogger(__name__)
 best_valid_f1 = 0
 best_test_f1 = 0
 
+
+def prerequisite(args):
+    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
+    logger.info(dict(args._get_kwargs()))
+    args.logger = logger
+
+    # set wandb
+    wandb.init(project=args.project_name, mode='online', config=args)
+
+    args.logger.info(f"sweep configuraion is loaded.")
+    args.logger.info(wandb.config)
+
+    run_name = f"ucb_{args.ucb}"                
+    wandb.run.name = run_name
+    
+    if args.seed is not None:
+        set_seed(args)
+        args.logger.info(f'seed is set to {args.seed}.')
+    
+    if args.out == '':
+        args.out = f"results/{datetime.now().strftime('%y%m%d%H%M%S')}_" + run_name 
+    
+    os.makedirs(args.out, exist_ok=True)
+    print(f'{args.out} directory created.')
+
+    if args.dataset == 'wm811k':
+        if not args.exclude_none:
+            args.num_classes = 9
+        else:
+            args.num_classes = 8
+            
+        if args.arch == 'wideresnet':
+            args.model_depth = 28
+            args.model_width = 2
+        elif args.arch == 'resnext':
+            args.model_cardinality = 4
+            args.model_depth = 28
+            args.model_width = 4
+    else:
+        raise ValueError('unknown dataset') 
+
+
 def main(local_rank, args):
     global best_valid_f1, best_test_f1
     args.local_rank = local_rank
@@ -459,5 +501,6 @@ def evaluate(epoch, args, loader, model, valid_f1=None):
 
 
 if __name__ == '__main__':
-    args = get_args_ucb()    
+    args = get_args_ucb() 
+    prerequisite(args)   
     main(0, args)  # single machine, single gpu
