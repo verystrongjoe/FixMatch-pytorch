@@ -33,6 +33,16 @@ best_valid_f1 = 0
 best_test_f1 = 0
 
 
+def create_pie_plot(arr, labels):
+    unique_values, sizes = np.unique(arr, return_counts=True)
+    explode = (0.1, 0)  # explode 1st slice for emphasis
+    plt.figure(figsize=(5,5))
+    plt.pie(sizes, explode=explode, labels=labels, colors=colors,
+            autopct='%1.1f%%', shadow=True, startangle=140)
+    plt.axis('equal')  # Equal aspect ratio ensures pie is drawn as a circle.
+    return plt
+
+
 def prerequisite(args):
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(dict(args._get_kwargs()))
@@ -195,10 +205,18 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         count = AverageMeter()
         p_bar = tqdm((unlabeled_trainloader))
 
+        if args.ucb:
+            num_weaks = []
+            num_strongs = []
+            reward1 = []
+            reward2 = []
+
         model.train()
         for batch_idx, items in enumerate(unlabeled_trainloader):
             if args.ucb:
                 arm_for_weak_aug, inputs_u_w, arm_for_strong_aug, inputs_u_s, inputs_origin, caption, saliency_map = items
+                num_weaks.extend(arm_for_weak_aug)
+                num_strongs.extend(arm_for_strong_aug) 
             else:
                 inputs_u_w, inputs_u_s, caption, saliency_map = items
             try:
@@ -231,8 +249,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
             mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
 
-
-
             if args.ucb:
                 #######################################################################################################################
                 # bandit 적용 부분 (리워드 및 컨텍스트 반영 및 업데이트 )
@@ -241,6 +257,9 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 # -->업데이트를 하자면 cosine 유사도가 낮도록 해놓고 pseudo label이 얻어졌을때 리워드를 크게 주는것이 좋을듯
                 rewards_one = (1 / nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s))
                 rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
+
+                reward1.append(rewards_one.cpu().detach().numpy())
+                reward2.append(rewards_two.cpu().detach().numpy())
 
                 context_vectors = inputs_origin.flatten(start_dim=1).cpu().detach().numpy()
                 reward_vectors = (rewards_one + rewards_two).cpu().detach().numpy()
@@ -323,7 +342,20 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             # 'test/2.test_loss': test_loss,
             # 'test/3.test_auprc': test_auprc,
             # 'test/4.test_f1': test_f1
-            })        
+            }
+            'reward1_mean': 
+            'reward1_std': 
+            'reward2_mean': 
+            'reward2_std': 
+            )        
+        
+        plt = create_pie_plot(num_weaks, args.simple_modes)
+        wandb.log({"Num weaks": wandb.Image(plt, caption="Distribution of Weak Augmentations")})
+        plt.close()
+        plt = create_pie_plot(num_strongs, args.composite_modes)
+        wandb.log({"Num strong": wandb.Image(plt, caption="Distribution of Strong Augmentations")})
+        plt.close()
+
 
         if is_best:
             test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)

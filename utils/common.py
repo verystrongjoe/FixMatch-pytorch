@@ -261,6 +261,24 @@ def get_args_ucb():
         args.ucb_weak_policy = linucb_policy(K_arms=args.ucb_arms_for_weak, d=args.ucb_context_vector, alpha=args.ucb_alpha, batch_size=args.batch_size)
         args.ucb_strong_policy = linucb_policy(K_arms=args.ucb_arms_for_strong, d=args.ucb_context_vector, alpha=args.ucb_alpha, batch_size=args.batch_size) 
 
+        # Defining the modes
+        args.simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift']
+
+        args.composite_modes = [
+            'crop+cutout',      # 'cutout+crop',
+            'crop+noise',       # 'noise+crop',
+            'crop+rotate',      # 'rotate+crop',
+            'crop+shift',       # 'shift+crop',
+            'cutout+noise',     # 'noise+cutout',
+            'cutout+rotate',    # 'rotate+cutout',
+            'cutout+shift',     # 'shift+cutout',
+            'noise+rotate',     # 'rotate+noise',
+            'noise+shift',      # 'shift+noise',
+            'rotate+shift',     # 'shift+rotate'
+        ] 
+        args.weak_augs = []
+        args.strong_augs = []
+
     return args
 
 

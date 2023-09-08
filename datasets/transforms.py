@@ -396,26 +396,30 @@ class TransformFixMatchWaferLinearUCB(object):
         arm_for_weak_aug   = weak_policy.select_arm(basic['image'])
         arm_for_strong_aug = strong_policy.select_arm(basic['image'])
 
-        print(f'weak aug action : {arm_for_weak_aug} strong aug action : {arm_for_strong_aug}')
-        
-        # Defining the modes
-        simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift', 'test']
+        # append weak and strong augmentations for further analysis 
+        self.args.weak_augs.append(arm_for_weak_aug)
+        self.args.strong_augs.append(arm_for_strong_aug)
 
-        composite_modes = [
-            'crop+cutout',  # 'cutout+crop',
-            'crop+noise',   # 'noise+crop',
-            'crop+rotate',  # 'rotate+crop',
-            'crop+shift',   # 'shift+crop',
-            'cutout+noise', # 'noise+cutout',
-            'cutout+rotate',# 'rotate+cutout',
-            'cutout+shift', # 'shift+cutout',
-            'noise+rotate', # 'rotate+noise',
-            'noise+shift',  # 'shift+noise',
-            'rotate+shift', # 'shift+rotate'
-        ] 
+        # print(f'weak aug action : {arm_for_weak_aug} strong aug action : {arm_for_strong_aug}')
+
+        # # Defining the modes
+        # simple_modes = ['crop', 'cutout', 'noise', 'rotate', 'shift']
+
+        # composite_modes = [
+        #     'crop+cutout',  # 'cutout+crop',
+        #     'crop+noise',   # 'noise+crop',
+        #     'crop+rotate',  # 'rotate+crop',
+        #     'crop+shift',   # 'shift+crop',
+        #     'cutout+noise', # 'noise+cutout',
+        #     'cutout+rotate',# 'rotate+cutout',
+        #     'cutout+shift', # 'shift+cutout',
+        #     'noise+rotate', # 'rotate+noise',
+        #     'noise+shift',  # 'shift+noise',
+        #     'rotate+shift', # 'shift+rotate'
+        # ] 
        
-        weak_transform = self.assign_transform(simple_modes[arm_for_weak_aug])
-        strong_trnasform = self.assign_transform(composite_modes[arm_for_strong_aug])
+        weak_transform = self.assign_transform(args.simple_modes[arm_for_weak_aug])
+        strong_trnasform = self.assign_transform(args.composite_modes[arm_for_strong_aug])
         
         # TODO: 여기에 위에 선택한 action을 리턴해주면 되겠군. 그리고 리워드 업데이트하는 부분만 수정하자!!
         return arm_for_weak_aug, weak_transform(image=basic['image'])['image'], arm_for_strong_aug, strong_trnasform(image=basic['image'])['image'], ''
