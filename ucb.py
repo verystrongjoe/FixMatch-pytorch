@@ -182,7 +182,7 @@ class linucb_policy():
         
     def select_arm(self, x_array):
         # Initiate ucb to be 0
-        highest_ucb = -1
+        highest_ucb = -1e8
         # Track index of arms to be selected on if they have the max UCB.
         candidate_arms = []
         
