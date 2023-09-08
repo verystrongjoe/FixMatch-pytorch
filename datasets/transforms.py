@@ -418,8 +418,8 @@ class TransformFixMatchWaferLinearUCB(object):
         #     'rotate+shift', # 'shift+rotate'
         # ] 
        
-        weak_transform = self.assign_transform(args.simple_modes[arm_for_weak_aug])
-        strong_trnasform = self.assign_transform(args.composite_modes[arm_for_strong_aug])
+        weak_transform = self.assign_transform(self.args.simple_modes[arm_for_weak_aug])
+        strong_trnasform = self.assign_transform(self.args.composite_modes[arm_for_strong_aug])
         
         # TODO: 여기에 위에 선택한 action을 리턴해주면 되겠군. 그리고 리워드 업데이트하는 부분만 수정하자!!
         return arm_for_weak_aug, weak_transform(image=basic['image'])['image'], arm_for_strong_aug, strong_trnasform(image=basic['image'])['image'], ''

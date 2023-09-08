@@ -37,7 +37,7 @@ def create_pie_plot(arr, labels):
     unique_values, sizes = np.unique(arr, return_counts=True)
     explode = (0.1, 0)  # explode 1st slice for emphasis
     plt.figure(figsize=(5,5))
-    plt.pie(sizes, explode=explode, labels=labels, colors=colors,
+    plt.pie(sizes,  labels=labels,
             autopct='%1.1f%%', shadow=True, startangle=140)
     plt.axis('equal')  # Equal aspect ratio ensures pie is drawn as a circle.
     return plt
@@ -342,11 +342,11 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             # 'test/2.test_loss': test_loss,
             # 'test/3.test_auprc': test_auprc,
             # 'test/4.test_f1': test_f1
-            }
-            'reward1_mean': 
-            'reward1_std': 
-            'reward2_mean': 
-            'reward2_std': 
+            'reward1_mean': np.asarray(reward1).mean(),
+            'reward1_std': np.asarray(reward1).std(),
+            'reward2_mean': np.asarray(reward2).mean(),
+            'reward2_std': np.asarray(reward2).std()
+            }            
             )        
         
         plt = create_pie_plot(num_weaks, args.simple_modes)
