@@ -230,10 +230,6 @@ def get_args_ucb():
     parser.add_argument('--ucb_arms_for_strong', type=int, default=5*2)
 
     args = parser.parse_args()
-
-    
-    #TODO: 임시 지정!!!!
-    args.ucb = False
     args.size_xy = 32
 
     num_gpus_per_node = 0
