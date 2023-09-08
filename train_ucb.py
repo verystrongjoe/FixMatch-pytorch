@@ -44,7 +44,7 @@ def prerequisite(args):
     args.logger.info(f"sweep configuraion is loaded.")
     args.logger.info(wandb.config)
 
-    run_name = f"ucb_{args.ucb}"                
+    run_name = f"ucb_{args.ucb}_{args.proportion}_{args.ucb_alpha}"                
     wandb.run.name = run_name
     
     if args.seed is not None:
