@@ -228,6 +228,10 @@ def get_args_ucb():
     parser.add_argument('--ucb_alpha', type=int, default=1.5)
     parser.add_argument('--ucb_arms_for_weak', type=int, default=5)
     parser.add_argument('--ucb_arms_for_strong', type=int, default=5*2)
+    parser.add_argument('--ucb_reward_cosine_similarity_op_plus', action='store_true', help='add cosine similarity with plus operator')
+
+    # TODO: contextual 정보가 필요없는 ucb 만들고 분기처리
+    parser.add_argument('--ucb_contextual', action='store_true', help='just ucb')
 
     args = parser.parse_args()
     args.size_xy = 32

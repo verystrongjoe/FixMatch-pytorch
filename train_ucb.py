@@ -255,8 +255,12 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 #######################################################################################################################
                 # TODO: 낮아야 좋은건지 높아야 좋을건지 고민되네. 서로 유사하긴 해야하지 않나. 둘다 실험이 필요할듯
                 # -->업데이트를 하자면 cosine 유사도가 낮도록 해놓고 pseudo label이 얻어졌을때 리워드를 크게 주는것이 좋을듯
-                rewards_one = (1 / nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s))
-                rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
+                if args.ucb_reward_cosine_similarity_op_plus:
+                    rewards_one = nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s)
+                    rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
+                else:
+                    rewards_one = (1 / nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s))
+                    rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
 
                 reward1.append(rewards_one.cpu().detach().numpy())
                 reward2.append(rewards_two.cpu().detach().numpy())
