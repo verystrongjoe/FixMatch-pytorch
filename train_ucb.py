@@ -230,26 +230,42 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s, inputs_origin)), 3*args.mu+1).to(args.local_rank)
-            targets_x = targets_x.to(args.local_rank)
+            
+            
+            if args.ucb:
+                inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s, inputs_origin)), 3*args.mu+1).to(args.local_rank)
+                targets_x = targets_x.to(args.local_rank)
 
-            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
-            inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
-            logits = model(inputs)
-            logits = de_interleave(logits, 3*args.mu+1)
-            logits_x = logits[:batch_size]
-            logits_u_w, logits_u_s, logits_u_origin = logits[batch_size:].chunk(3)
+                # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
+                inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+                logits = model(inputs)
+                logits = de_interleave(logits, 3*args.mu+1)
+                logits_x = logits[:batch_size]
+                logits_u_w, logits_u_s, logits_u_origin = logits[batch_size:].chunk(3)
 
-            # [ucb] : reward calculation
-            # TODO:: cosine 유사도가 낮으나 레이블 일치하면 더 크게 리워드 부여 (임세린 의견) 고민 해볼것
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logits_x    + pusedo_label match  
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logiits_u_s + pusedo_label match 
+                del logits
+                Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
+                pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
+                max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
+                mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
 
-            del logits
-            Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
-            pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
-            max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
-            mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
+            else:
+                inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
+                targets_x = targets_x.to(args.local_rank)
+
+                # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
+                inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+                logits = model(inputs)
+                logits = de_interleave(logits, 2*args.mu+1)
+                logits_x = logits[:batch_size]
+                logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
+
+                del logits
+                Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
+                pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
+                max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
+                mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수      
+
 
             if args.ucb:
                 #######################################################################################################################

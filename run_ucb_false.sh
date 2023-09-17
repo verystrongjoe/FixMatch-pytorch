@@ -18,6 +18,6 @@ for n in 2
 do
     for prop in 0.05 0.1 0.25 0.50 1.0
     do
-        CUDA_VISIBLE_DEVICES=0 python -m train --limit-unlabled $limit_unlabled --aug_types $aug_types --mu $mu --lambda-u $l --nm-optim sgd --epochs $epoch --tau $tau --project-name $pn  --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $prop --arch $arch --batch-size 256 --lr $lr --seed $seed 
+        CUDA_VISIBLE_DEVICES=0 python -m train_ucb --limit-unlabled $limit_unlabled --aug_types $aug_types --mu $mu --lambda-u $l --nm-optim sgd --epochs $epoch --tau $tau --project-name $pn  --n-weaks-combinations $n --threshold $th --wandb  --dataset wm811k --proportion $prop --arch $arch --batch-size 256 --lr $lr --seed $seed 
     done
 done
