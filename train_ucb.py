@@ -353,35 +353,50 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         is_best = valid_f1 > best_valid_f1
         best_valid_f1 = max(valid_f1, best_valid_f1)
 
-        wandb.log({
-            'epoch': epoch,
-            'train/1.loss': losses.avg,
-            'train/2.loss_x': losses_x.avg,
-            'train/3.loss_u': losses_u.avg,
-            'train/4.mask': masks.sum,
-            'train/4.mask_prop': (masks.sum/count.sum)*100,
-            'valid/1.acc': valid_acc,
-            'valid/2.loss': valid_loss,
-            'valid/3.auprc': valid_auprc,
-            'valid/4.f1': valid_f1,
-            'reward_weak_first_mean': np.asarray(reward_w_1).mean(),
-            'reward_weak_first_std': np.asarray(reward_w_1).std(),
-            'reward_weak_second_mean': np.asarray(reward_w_2).mean(),
-            'reward_weak_second_std': np.asarray(reward_w_2).std(),
-            'reward_strong_first_mean': np.asarray(reward_s_1).mean(),
-            'reward_strong_first_std': np.asarray(reward_s_1).std(),
-            'reward_strong_second_mean': np.asarray(reward_s_2).mean(),
-            'reward_strong_second_std': np.asarray(reward_s_2).std(),
-            }            
-            )        
-        
-        plt = create_pie_plot(num_weaks, args.simple_modes)
-        wandb.log({"Num weaks": wandb.Image(plt, caption="Distribution of Weak Augmentations")})
-        plt.close()
-        plt = create_pie_plot(num_strongs, args.composite_modes)
-        wandb.log({"Num strong": wandb.Image(plt, caption="Distribution of Strong Augmentations")})
-        plt.close()
 
+        if args.ucb:
+            wandb.log({
+                'epoch': epoch,
+                'train/1.loss': losses.avg,
+                'train/2.loss_x': losses_x.avg,
+                'train/3.loss_u': losses_u.avg,
+                'train/4.mask': masks.sum,
+                'train/4.mask_prop': (masks.sum/count.sum)*100,
+                'valid/1.acc': valid_acc,
+                'valid/2.loss': valid_loss,
+                'valid/3.auprc': valid_auprc,
+                'valid/4.f1': valid_f1,
+                'reward_weak_first_mean': np.asarray(reward_w_1).mean(),
+                'reward_weak_first_std': np.asarray(reward_w_1).std(),
+                'reward_weak_second_mean': np.asarray(reward_w_2).mean(),
+                'reward_weak_second_std': np.asarray(reward_w_2).std(),
+                'reward_strong_first_mean': np.asarray(reward_s_1).mean(),
+                'reward_strong_first_std': np.asarray(reward_s_1).std(),
+                'reward_strong_second_mean': np.asarray(reward_s_2).mean(),
+                'reward_strong_second_std': np.asarray(reward_s_2).std(),
+                }            
+                )        
+            
+            plt = create_pie_plot(num_weaks, args.simple_modes)
+            wandb.log({"Num weaks": wandb.Image(plt, caption="Distribution of Weak Augmentations")})
+            plt.close()
+            plt = create_pie_plot(num_strongs, args.composite_modes)
+            wandb.log({"Num strong": wandb.Image(plt, caption="Distribution of Strong Augmentations")})
+            plt.close()
+        else:
+            wandb.log({
+                'epoch': epoch,
+                'train/1.loss': losses.avg,
+                'train/2.loss_x': losses_x.avg,
+                'train/3.loss_u': losses_u.avg,
+                'train/4.mask': masks.sum,
+                'train/4.mask_prop': (masks.sum/count.sum)*100,
+                'valid/1.acc': valid_acc,
+                'valid/2.loss': valid_loss,
+                'valid/3.auprc': valid_auprc,
+                'valid/4.f1': valid_f1
+                }            
+                )   
         if is_best:
             test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)
             best_test_f1 = max(test_f1, best_test_f1)
