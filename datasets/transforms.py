@@ -673,23 +673,13 @@ class TransformFixMatchWaferLinearUCB(object):
 class TransformFixMatchWafer(object):
     def __init__(self, args):
 
-        if args.rotate_weak_aug:
-            self.weak = A.Compose([
-                A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
-                A.Rotate(limit=(-180, 180), interpolation=cv2.INTER_NEAREST, border_mode=cv2.BORDER_CONSTANT, p=0.5),
-                A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
-                ToWBM()
-            ])
-        else:
-            self.weak = A.Compose([
-                A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
-                A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
-                ToWBM()
-            ])
+        self.weak = A.Compose([
+            A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),  #TODO: Ensemble 논문과 동일하게 셋팅
+            A.RandomCrop(height=args.size_xy, width=args.size_xy),  
+            ToWBM()
+        ])
 
         self.basic = A.Compose([
             A.Resize(width=args.size_xy, height=args.size_xy, interpolation=cv2.INTER_NEAREST),
@@ -698,13 +688,6 @@ class TransformFixMatchWafer(object):
             # A.RandomCrop(height=args.size_xy, width=args.size_xy),  #TODO: 이거 필요없지 않을까..
         ])
 
-        if args.keep:
-            # todo : change specific directory for proportion
-            t_prop = args.proportion if args.fix_keep_proportion < 0. else args.fix_keep_proportion
-            checkpoint = torch.load(f'results/wm811k-supervised-{t_prop}/model_best.pth.tar')
-            print(f"we get sailency map from the pretrained model with accruacy of {checkpoint['acc']} and macro f1 score of {checkpoint['best_f1']} and proportion of {t_prop}")
-            args.supervised_model = create_model(args, keep=True)
-            args.supervised_model.load_state_dict(checkpoint['state_dict'])
         self.args = args
 
     def __call__(self, x, saliency_map):

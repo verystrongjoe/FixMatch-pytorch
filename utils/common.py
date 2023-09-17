@@ -7,18 +7,13 @@ from torch.optim.lr_scheduler import LambdaLR
 import math
 import argparse
 from models.advanced import AdvancedCNN
-import logging
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import torchmetrics
-
 from models.resnet import ResNetBackbone
 from models.vggnet import VggNetBackbone
 from models.alexnet import AlexNetBackbone
-
 from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
 from ucb import linucb_policy
 
