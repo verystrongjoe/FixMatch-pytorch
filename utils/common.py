@@ -7,18 +7,13 @@ from torch.optim.lr_scheduler import LambdaLR
 import math
 import argparse
 from models.advanced import AdvancedCNN
-import logging
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import torchmetrics
-
 from models.resnet import ResNetBackbone
 from models.vggnet import VggNetBackbone
 from models.alexnet import AlexNetBackbone
-
 from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
 from ucb import linucb_policy
 
@@ -225,7 +220,7 @@ def get_args_ucb():
     # ucb configuration
     parser.add_argument('--ucb', action='store_true', help='whether or not this algo uses ucb bandit for weak and strong augmentations.')
     parser.add_argument('--ucb_context_vector', type=int, default=1024)
-    parser.add_argument('--ucb_alpha', type=int, default=1.5)
+    parser.add_argument('--ucb_alpha', type=float, default=1.5)
     parser.add_argument('--ucb_arms_for_weak', type=int, default=5)
     parser.add_argument('--ucb_arms_for_strong', type=int, default=5*2)
     parser.add_argument('--ucb_reward_cosine_similarity_op_plus', action='store_true', help='add cosine similarity with plus operator')

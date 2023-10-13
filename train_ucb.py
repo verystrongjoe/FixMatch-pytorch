@@ -23,7 +23,6 @@ from argparse import Namespace
 from PIL import Image
 import collections
 import pandas as pd
-# from tabulate import tabulate
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -177,6 +176,7 @@ def main(local_rank, args):
     logger.info(f"  Total optimization steps = {args.epochs  * len(labeled_trainloader)}")
 
     model.zero_grad()
+    args.model = model # context vector 줄이기 위해!
     train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_loader,
           model, optimizer, ema_model, scheduler)
 
@@ -208,8 +208,10 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         if args.ucb:
             num_weaks = []
             num_strongs = []
-            reward1 = []
-            reward2 = []
+            reward_w_1 = []
+            reward_w_2 = []
+            reward_s_1 = []
+            reward_s_2 = []
 
         model.train()
         for batch_idx, items in enumerate(unlabeled_trainloader):
@@ -228,26 +230,42 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
 
             data_time.update(time.time() - end)
             batch_size = inputs_x.shape[0]
-            inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
-            targets_x = targets_x.to(args.local_rank)
+            
+            
+            if args.ucb:
+                inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s, inputs_origin)), 3*args.mu+1).to(args.local_rank)
+                targets_x = targets_x.to(args.local_rank)
 
-            # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
-            inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
-            logits = model(inputs)
-            logits = de_interleave(logits, 2*args.mu+1)
-            logits_x = logits[:batch_size]
-            logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
+                # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
+                inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+                logits = model(inputs)
+                logits = de_interleave(logits, 3*args.mu+1)
+                logits_x = logits[:batch_size]
+                logits_u_w, logits_u_s, logits_u_origin = logits[batch_size:].chunk(3)
 
-            # [ucb] : reward calculation
-            # TODO:: cosine 유사도가 낮으나 레이블 일치하면 더 크게 리워드 부여 (임세린 의견) 고민 해볼것
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logits_x    + pusedo_label match  
-            # Q(s, a) of weak aug = cosine similiarity between logiits_u_w and logiits_u_s + pusedo_label match 
+                del logits
+                Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
+                pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
+                max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
+                mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
 
-            del logits
-            Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
-            pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
-            max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
-            mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수
+            else:
+                inputs = interleave(torch.cat((inputs_x, inputs_u_w, inputs_u_s)), 2*args.mu+1).to(args.local_rank)
+                targets_x = targets_x.to(args.local_rank)
+
+                # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze().float()  # make 3 channels
+                inputs = inputs.permute(0, 3, 1, 2).float()  # (b, c, h, w)
+                logits = model(inputs)
+                logits = de_interleave(logits, 2*args.mu+1)
+                logits_x = logits[:batch_size]
+                logits_u_w, logits_u_s = logits[batch_size:].chunk(2)
+
+                del logits
+                Lx = F.cross_entropy(logits_x, targets_x.long(), reduction='mean') # targets_x.cpu().numpy(), logits_u_s.detach().cpu().numpy()
+                pseudo_label = torch.softmax(logits_u_w.detach()/args.T, dim=-1)
+                max_probs, targets_u = torch.max(pseudo_label, dim=-1)  # threshold 넘은 값 logiit
+                mask = max_probs.ge(args.threshold).float() # 이 값은 threshold를 넘은 값 수도 레이블 개수      
+
 
             if args.ucb:
                 #######################################################################################################################
@@ -255,35 +273,39 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
                 #######################################################################################################################
                 # TODO: 낮아야 좋은건지 높아야 좋을건지 고민되네. 서로 유사하긴 해야하지 않나. 둘다 실험이 필요할듯
                 # -->업데이트를 하자면 cosine 유사도가 낮도록 해놓고 pseudo label이 얻어졌을때 리워드를 크게 주는것이 좋을듯
-                if args.ucb_reward_cosine_similarity_op_plus:
-                    rewards_one = nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s)
-                    rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
-                else:
-                    rewards_one = (1 / nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_s))
-                    rewards_two = -1 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
+                
+                rewards_weak_first = nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_w, logits_u_origin)
+                rewards_weak_seocnd = -2 * (F.cross_entropy(logits_u_w, targets_u, reduction='none') * mask)
 
-                reward1.append(rewards_one.cpu().detach().numpy())
-                reward2.append(rewards_two.cpu().detach().numpy())
+                # TODO: Strong augmentation의 경우에는 코사인 유사도가 낮아야!
+                rewards_strong_first = -1 * nn.CosineSimilarity(dim=1, eps=1e-6)(logits_u_s, logits_u_origin)
+                rewards_strong_second =  -2 * (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask)
 
+                reward_w_1.append(rewards_weak_first.cpu().detach().numpy())
+                reward_w_2.append(rewards_weak_seocnd.cpu().detach().numpy())
+
+                reward_s_1.append(rewards_strong_first.cpu().detach().numpy())
+                reward_s_2.append(rewards_strong_second.cpu().detach().numpy())
+
+                # TODO: arm을 선택할때 좀 곤란해서 일단 원 이미지 입력으로..
                 context_vectors = inputs_origin.flatten(start_dim=1).cpu().detach().numpy()
-                reward_vectors = (rewards_one + rewards_two).cpu().detach().numpy()
-                # weak_arms = arm_for_weak_aug.cpu().detach().numpy()
-                # strong_arms = arm_for_strong_aug.cpu().detach().numpy()
+
+                weak_reward_vectors = (rewards_weak_first + rewards_weak_seocnd).cpu().detach().numpy()
+                strong_reward_vectors = (rewards_strong_first + rewards_strong_second).cpu().detach().numpy()
 
                 # update weak policy
                 for arm in range(args.ucb_weak_policy.K_arms):
                     states  = context_vectors[arm_for_weak_aug == arm]
-                    rewards = reward_vectors[arm_for_weak_aug == arm]
+                    rewards = weak_reward_vectors[arm_for_weak_aug == arm]
                     args.ucb_weak_policy.linucb_arms[arm].add_to_buffer(states, rewards)
 
                 # update storng policy
                 for arm in range(args.ucb_strong_policy.K_arms):
                     states  = context_vectors[arm_for_strong_aug == arm]
-                    rewards = reward_vectors[arm_for_strong_aug == arm]
+                    rewards = strong_reward_vectors[arm_for_strong_aug == arm]
                     args.ucb_strong_policy.linucb_arms[arm].add_to_buffer(states, rewards)
                 #######################################################################################################################                
                 #######################################################################################################################
-            
 
             Lu = (F.cross_entropy(logits_u_s, targets_u, reduction='none') * mask).mean()  # cross entropy from targets_u 
 
@@ -342,14 +364,14 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             'valid/2.loss': valid_loss,
             'valid/3.auprc': valid_auprc,
             'valid/4.f1': valid_f1,
-            # 'test/1.test_acc': test_acc,
-            # 'test/2.test_loss': test_loss,
-            # 'test/3.test_auprc': test_auprc,
-            # 'test/4.test_f1': test_f1
-            'reward1_mean': np.asarray(reward1).mean(),
-            'reward1_std': np.asarray(reward1).std(),
-            'reward2_mean': np.asarray(reward2).mean(),
-            'reward2_std': np.asarray(reward2).std()
+            'reward_weak_first_mean': np.asarray(reward_w_1).mean(),
+            'reward_weak_first_std': np.asarray(reward_w_1).std(),
+            'reward_weak_second_mean': np.asarray(reward_w_2).mean(),
+            'reward_weak_second_std': np.asarray(reward_w_2).std(),
+            'reward_strong_first_mean': np.asarray(reward_s_1).mean(),
+            'reward_strong_first_std': np.asarray(reward_s_1).std(),
+            'reward_strong_second_mean': np.asarray(reward_s_2).mean(),
+            'reward_strong_second_std': np.asarray(reward_s_2).std(),
             }            
             )        
         
@@ -360,7 +382,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
         wandb.log({"Num strong": wandb.Image(plt, caption="Distribution of Strong Augmentations")})
         plt.close()
 
-
         if is_best:
             test_loss, test_acc, test_auprc, test_f1, total_reals, total_preds = evaluate(epoch, args, test_loader, model, valid_f1=valid_f1)
             best_test_f1 = max(test_f1, best_test_f1)
@@ -369,68 +390,6 @@ def train(args, labeled_trainloader, unlabeled_trainloader, valid_loader, test_l
             wandb.run.summary["test_auprc"] = test_auprc
             wandb.run.summary["test_acc"] = test_acc
 
-            if test_f1 > 0.8:
-                saving_path = os.path.join(args.out, str(epoch))
-                os.makedirs(saving_path, exist_ok=True)
-                
-                # 수도레이블 선정된 것들 인덱스 취해서..
-                idxes = np.arange(batch_size*args.mu)[mask.cpu().numpy() != 0.]
-                # 모든 수도레이블(레이블이 없는 상태인 -를 제외하고 0~8 값을 다 하나씩 인덱스를 뽑아서 저장)
-                if len(set(targets_u[idxes])) == args.num_classes:
-                    flags = [False for i in range(args.num_classes)]
-                    for sample_idx, ul in zip(idxes, targets_u[idxes]):
-                        if not flags[ul]:
-                            flags[ul] = True
-                            weak_image = (inputs_u_w[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)      # 96 x 96 x 1
-                            strong_image = (inputs_u_s[sample_idx].detach().numpy().squeeze()*127.5).astype(np.uint8)    # 96 x 96 x 1
-                            h, w = weak_image.shape[0], weak_image.shape[0]
-                            three_images = Image.new('L',(3*weak_image.shape[0], weak_image.shape[0]))
-                            three_images.paste(Image.fromarray(weak_image), (0,0, w, h))
-                            three_images.paste(Image.fromarray(strong_image),(w, 0, w*2, h))
-                            if args.keep:
-                                three_images.paste(Image.fromarray(np.squeeze(np.load(saliency_map[sample_idx])*255).astype(np.uint8)),(w*2, 0, w*3, h))
-                            else:
-                                three_images.paste(Image.fromarray(np.squeeze(np.zeros((96,96))).astype(np.uint8)),(w*2, 0, w*3, h))
-                            final_caption = caption[sample_idx].replace('./data/wm811k/unlabeled/train/-/', '').replace('.png', '')
-                            # three_images = wandb.Image(three_images, caption=final_caption)
-                            # wandb.log({f"pseduo label: {WM811K.idx2label[targets_u[sample_idx]]}": three_images})
-                            three_images.save(os.path.join(saving_path, f'{WM811K.idx2label[targets_u[sample_idx]]}_{final_caption}.png'))
-
-                    # wandb.log({f"conf_mat_{epoch}" :
-                    #     wandb.plot.confusion_matrix(
-                    #         probs=None,
-                    #         y_true=total_reals,
-                    #         preds=total_preds,
-                    #         class_names=np.asarray(WM811K.idx2label)[:args.num_classes])
-                    #     }
-                    # )
-                    cm = confusion_matrix(total_reals, total_preds, labels=list(range(args.num_classes)))
-                    # plot confusion matrix using seaborn heatmap
-                    labels = np.asarray(WM811K.idx2label)[:args.num_classes]
-                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
-                    # set plot labels and title
-                    plt.xlabel("Predicted label")
-                    plt.ylabel("True label")
-                    plt.title("Confusion Matrix")
-                    # show plot
-                    plt.savefig(os.path.join(saving_path, 'confusion.png'))
-            
-                model_to_save = model.module if hasattr(model, "module") else model
-                if args.use_ema:
-                    ema_to_save = ema_model.ema.module if hasattr(
-                        ema_model.ema, "module") else ema_model.ema
-                    
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict': model_to_save.state_dict(),
-                    'ema_state_dict': ema_to_save.state_dict() if args.use_ema else None,
-                    'acc': test_acc,
-                    'best_valid_f1': best_valid_f1,
-                    'best_test_f1': best_test_f1,
-                    'optimizer': optimizer.state_dict(),
-                    'scheduler': scheduler.state_dict(),
-                }, is_best, args.out)
-                logger.info('Best top-1 f1 score: {:.2f}'.format(best_test_f1))
 
 
 def evaluate(epoch, args, loader, model, valid_f1=None):
