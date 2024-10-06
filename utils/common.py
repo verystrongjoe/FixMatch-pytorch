@@ -18,7 +18,7 @@ import torchmetrics
 from models.resnet import ResNetBackbone
 from models.vggnet import VggNetBackbone
 from models.alexnet import AlexNetBackbone
-
+from models.densenet121 import DenseNet121 
 from models.network_configs import RESNET_BACKBONE_CONFIGS, VGGNET_BACKBONE_CONFIGS
 
 
@@ -114,7 +114,7 @@ def get_args():
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
-                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', "densenet121"))
     # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment
@@ -188,6 +188,9 @@ def create_model(args, keep=False):
         model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['18'], in_channels=1)
     elif args.arch == 'resnet50': 
         model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['50'], in_channels=1)
+    elif args.arch == 'densenet121':
+        model = DenseNet121()
+
     else:
         raise ValueError('unknown model')
   
