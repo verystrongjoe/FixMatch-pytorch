@@ -50,7 +50,7 @@ def get_args():
     parser.add_argument('--num_channel', type=int, default=1)
     parser.add_argument('--num_classes', type=int, default=9)
     parser.add_argument('--size-xy', type=int, default=96)
-
+    parser.add_argument('--rotate_weak_aug', action='store_true')   
     parser.add_argument("--expand-labels", action="store_true", help="expand labels to fit eval steps")
     parser.add_argument('--decouple_input', action='store_true')
     parser.add_argument('--wandb', action='store_true')
@@ -59,7 +59,7 @@ def get_args():
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
-                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', 'densenet121-1', 'densenet121-3'))
 
     # experiment
     parser.add_argument('--epochs', default=150, type=int, help='number of total steps to run')
@@ -178,6 +178,23 @@ if __name__ == '__main__':
     args.logger = logging.getLogger(__name__)
     print(args)
 
+    if args.arch == 'dense121-3':
+        args.batch_size = 128
+        epochs_1 = 90  # 125  # number of epochs for supervised learning (Section 4.2.)
+        epochs_2 = 150  # 150  # num
+        milestones_fs = [50, 100]
+        milestones_ss = [125]
+        print(f'dense121-3 is selected. batch_size is changed to {args.batch_size} and epochs_1 is changed to {epochs_1} and epochs_2 is changed to {epochs_2} and milestones_fs is changed to {milestones_fs} and milestones_ss is changed to {milestones_ss}')
+    elif args.arch == 'resnet18':
+        args.batch_size = 256
+        epochs_1 = 90   # 125  # number of epochs for supervised learning (Section 4.2.)
+        epochs_2 = 150  # 150  # num
+        milestones_fs = [50, 75]
+        milestones_ss = [125]
+        print(f'resnet18 is selected. batch_size is changed to {args.batch_size} and epochs_1 is changed to {epochs_1} and epochs_2 is changed to {epochs_2} and milestones_fs is changed to {milestones_fs} and milestones_ss is changed to {milestones_ss}')        
+    else:
+        raise ValueError(f'Invalid arch: {args.arch}')
+
     wandb.init(project=args.project_name, config=args)
     run_name = f"K_{args.K}_prop_{args.proportion}_arch_{args.arch}_seed{args.seed}"
     wandb.run.name = run_name
@@ -216,22 +233,26 @@ if __name__ == '__main__':
     for k in range(args.K):
 
         # TODO: change the pretrained model
-        # m = create_model(args).to(args.local_rank)
-        m  = models.resnet18(pretrained=True)
+        # m = create_model(args)
+        if args.arch == 'resnet18':
+            m  = models.resnet18(pretrained=True)
+        elif args.arch == 'densenet121-3':
+            m = models.densenet121(pretrained=True)
+        
         
         # Modify last layer to have a softmax output of size 9 and add a dropout layer
-        num_ftrs = m.fc.in_features
-        m.fc = torch.nn.Sequential(
-            torch.nn.Linear(num_ftrs, 512),
-            torch.nn.ReLU(),
-            torch.nn.Dropout(p=dropout_rate),
-            torch.nn.Linear(512, 9),
-            torch.nn.LogSoftmax(dim=1)
-        )
+        # num_ftrs = m.fc.in_features
+        # m.fc = torch.nn.Sequential(
+        #     torch.nn.Linear(num_ftrs, 512),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Dropout(p=dropout_rate),
+        #     torch.nn.Linear(512, 9),
+        #     torch.nn.LogSoftmax(dim=1)
+        # )
         m = m.to(args.local_rank)
         
         o = optim.SGD(m.parameters(), lr=0.003)
-        s = MultiStepLR(o, milestones=[50, 100], gamma=0.1)
+        s = MultiStepLR(o, milestones=milestones_fs, gamma=0.1)
         train_models.append(m)
         optimizers_supervised.append(o)
         schedulers_supervised.append(s)
@@ -255,7 +276,7 @@ if __name__ == '__main__':
                     std = torch.std(inputs_x.float())
                     inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
                     
-                    train_models[k](inputs_x)
+                    # train_models[k](inputs_x)
                     logits = train_models[k](inputs_x)
                     loss = F.cross_entropy(logits, targets_x.long())
                     loss.backward()
@@ -268,6 +289,9 @@ if __name__ == '__main__':
             for k in range(args.K):
                 dict_supservised_losses["Supervised Loss(Upstream), {})".format(k)] = supervised_losses[k].avg
             wandb.log(dict_supservised_losses)
+            
+        import os
+        os.makedirs('checkpoints', exist_ok=True)
             
         # save_checkpoint for models
         for k in range(args.K):
@@ -299,7 +323,7 @@ if __name__ == '__main__':
 
     for k in range(args.K):
         o = optim.SGD(train_models[k].parameters(), lr=0.003)
-        s = MultiStepLR(o, milestones=[125], gamma=0.1)
+        s = MultiStepLR(o, milestones=milestones_ss, gamma=0.1)
         optimizers_semi_supervised.append(o)
         schedulers_semi_supervised.append(s)
 

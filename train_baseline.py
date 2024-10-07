@@ -1,8 +1,4 @@
 import logging
-import math
-import os
-import time
-import wandb
 
 import numpy as np
 import torch
@@ -58,10 +54,11 @@ def get_args():
     parser.add_argument('--size-xy', type=int, default=96)
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--sweep', action='store_true')
-    
+    parser.add_argument('--rotate_weak_aug', action='store_true')   
+
     # model
     parser.add_argument('--arch', type=str, default='resnet18',
-                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext'))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', 'densenet121'))
 
     # experiment
     parser.add_argument('--alpha', default=alpha, type=int, help='alpha')

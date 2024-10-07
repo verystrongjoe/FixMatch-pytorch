@@ -188,9 +188,10 @@ def create_model(args, keep=False):
         model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['18'], in_channels=1)
     elif args.arch == 'resnet50': 
         model = ResNetBackbone(RESNET_BACKBONE_CONFIGS['50'], in_channels=1)
-    elif args.arch == 'densenet121':
-        model = DenseNet121()
-
+    elif args.arch == 'densenet121-3':
+        model = DenseNet121(drop_rate=0.5, grayscale=False)
+    elif args.arch == 'densenet121-1':
+        model = DenseNet121(drop_rate=0.5, grayscale=True) 
     else:
         raise ValueError('unknown model')
   
