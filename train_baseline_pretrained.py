@@ -195,6 +195,11 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Invalid arch: {args.arch}')
 
+    args.milestones_fs = milestones_fs
+    args.milestones_ss = milestones_ss
+    args.epoch_1 = epochs_1
+    args.epoch_2 = epochs_2
+    
     wandb.init(project=args.project_name, config=args)
     run_name = f"K_{args.K}_prop_{args.proportion}_arch_{args.arch}_seed{args.seed}"
     wandb.run.name = run_name
