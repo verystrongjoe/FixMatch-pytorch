@@ -114,7 +114,7 @@ def get_args():
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
-                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', "densenet121"))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', "densenet121-1", "densenet121-3"))
     # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment

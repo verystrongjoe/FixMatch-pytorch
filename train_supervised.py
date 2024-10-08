@@ -160,8 +160,15 @@ def train(args, labeled_trainloader, valid_loader, test_loader, model, optimizer
             targets_x = targets_x.to(args.local_rank)
             inputs_x = inputs_x.to(args.local_rank)
 
-            # inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()  # make 3 channels
-            inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
+
+            # inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze().float()  # make 3 channels     
+            # inputs_x = inputs_x.permute(0, 3, 1, 2).float()  # (c, h, w)
+
+            inputs_x = F.one_hot(inputs_x.long(), num_classes=3).squeeze()
+            mean = torch.mean(inputs_x.float())
+            std = torch.std(inputs_x.float())
+            inputs_x = ((inputs_x.float() - mean) / std).permute(0,3,1,2)
+
             logits = model(inputs_x)
             loss = F.cross_entropy(logits, targets_x.long(), reduction='mean')
             loss.backward()
@@ -264,7 +271,12 @@ def test(args, loader, model, epoch):
 
             # make 3 channels
             # inputs = F.one_hot(inputs.long(), num_classes=3).squeeze()
-            inputs = inputs.permute(0, 3, 1, 2).float()  # (c, h, w)
+            # inputs = inputs.permute(0, 3, 1, 2).float()  # (c, h, w)
+
+            inputs = F.one_hot(inputs.long(), num_classes=3).squeeze()
+            mean = torch.mean(inputs.float())
+            std = torch.std(inputs.float())
+            inputs = ((inputs.float() - mean) / std).permute(0,3,1,2)
 
             inputs = inputs.to(args.local_rank)
             targets = targets.to(args.local_rank)
