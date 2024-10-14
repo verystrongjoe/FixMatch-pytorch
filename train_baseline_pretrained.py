@@ -178,13 +178,13 @@ if __name__ == '__main__':
     args.logger = logging.getLogger(__name__)
     print(args)
 
-    if args.arch == 'dense121-3':
+    if args.arch == 'densenet121-3':
         args.batch_size = 128
         epochs_1 = 90  # 125  # number of epochs for supervised learning (Section 4.2.)
         epochs_2 = 150  # 150  # num
         milestones_fs = [50, 100]
         milestones_ss = [125]
-        print(f'dense121-3 is selected. batch_size is changed to {args.batch_size} and epochs_1 is changed to {epochs_1} and epochs_2 is changed to {epochs_2} and milestones_fs is changed to {milestones_fs} and milestones_ss is changed to {milestones_ss}')
+        print(f'densenet121-3 is selected. batch_size is changed to {args.batch_size} and epochs_1 is changed to {epochs_1} and epochs_2 is changed to {epochs_2} and milestones_fs is changed to {milestones_fs} and milestones_ss is changed to {milestones_ss}')
     elif args.arch == 'resnet18':
         args.batch_size = 256
         epochs_1 = 90   # 125  # number of epochs for supervised learning (Section 4.2.)
@@ -195,6 +195,11 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Invalid arch: {args.arch}')
 
+    args.milestones_fs = milestones_fs
+    args.milestones_ss = milestones_ss
+    args.epoch_1 = epochs_1
+    args.epoch_2 = epochs_2
+    
     wandb.init(project=args.project_name, config=args)
     run_name = f"K_{args.K}_prop_{args.proportion}_arch_{args.arch}_seed{args.seed}"
     wandb.run.name = run_name
