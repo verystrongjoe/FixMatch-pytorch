@@ -96,7 +96,6 @@ def prerequisite(args):
             args.num_classes = 9
         else:
             args.num_classes = 8
-            
         if args.arch == 'wideresnet':
             args.model_depth = 28
             args.model_width = 2

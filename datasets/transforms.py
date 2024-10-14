@@ -363,10 +363,17 @@ class TransformFixMatchWafer(object):
         if args.keep:
             # todo : change specific directory for proportion
             t_prop = args.proportion if args.fix_keep_proportion < 0. else args.fix_keep_proportion
-            checkpoint = torch.load(f'results/wm811k-supervised-{t_prop}/model_best.pth.tar')
+            
+            if args.arch == 'resnet18':
+                checkpoint = torch.load(f'results/wm811k-supervised-{t_prop}/model_best.pth.tar')
+            elif args.arch in ['resnet50', 'densenet121', 'densenet121-1', 'densenet121-3']:
+                checkpoint = torch.load(f'results/rebuttal-{args.arch}-wm811k-supervised-{t_prop}/model_best.pth.tar')
+            else:
+                raise NotImplementedError
+            
             print(f"we get sailency map from the pretrained model with accruacy of {checkpoint['acc']} and macro f1 score of {checkpoint['best_f1']} and proportion of {t_prop}")
-            args.supervised_model = create_model(args, keep=True)
-            args.supervised_model.load_state_dict(checkpoint['state_dict'])
+            # args.supervised_model = create_model(args, keep=True)
+            # args.supervised_model.load_state_dict(checkpoint['state_dict'])
         self.args = args
 
     def __call__(self, x, saliency_map):

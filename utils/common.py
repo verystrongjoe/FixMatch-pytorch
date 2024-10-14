@@ -114,7 +114,7 @@ def get_args():
 
     # model
     parser.add_argument('--arch', type=str, default='wideresnet',
-                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', "densenet121-1", "densenet121-3"))
+                        choices=('resnet18', 'resnet50', 'vggnet', 'vggnet-bn', 'alexnet', 'alexnet-lrn', 'wideresnet', 'resnext', "densenet121", "densenet121-1", "densenet121-3"))
     # parser.add_argument('--arch-config', default='18', type=str)
 
     # experiment
@@ -158,7 +158,6 @@ def get_args():
 
 
 def create_model(args, keep=False):
-    
     if args.arch == 'wideresnet':
         import models.wideresnet as models
         args.model_depth = 28
@@ -191,6 +190,8 @@ def create_model(args, keep=False):
     elif args.arch == 'densenet121-3':
         model = DenseNet121(drop_rate=0.5, grayscale=False)
     elif args.arch == 'densenet121-1':
+        model = DenseNet121(drop_rate=0.5, grayscale=True) 
+    elif args.arch == 'densenet121':
         model = DenseNet121(drop_rate=0.5, grayscale=True) 
     else:
         raise ValueError('unknown model')
